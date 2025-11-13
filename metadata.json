@@ -1,0 +1,5 @@
+{
+  "name": "Acp-Projetos",
+  "description": "A web system for monitoring company projects, providing dashboards and real-time progress tracking based on task completion.",
+  "requestFramePermissions": []
+}
