@@ -234,12 +234,13 @@ const Projetos: React.FC = () => {
   };
 
   const filteredProjects = projects.filter(project => {
-    if (!project || !project.title || !project.companies?.name) {
+    if (!project || !project.title) {
         return false;
     }
     const searchTermLower = searchTerm.toLowerCase();
     const titleMatch = project.title.toLowerCase().includes(searchTermLower);
-    const companyMatch = project.companies.name.toLowerCase().includes(searchTermLower);
+    // Safely check for company name, preventing crashes if the company is missing.
+    const companyMatch = project.companies?.name?.toLowerCase().includes(searchTermLower) || false;
     return titleMatch || companyMatch;
   });
   
