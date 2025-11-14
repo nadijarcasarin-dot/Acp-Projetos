@@ -69,10 +69,15 @@ const Documentos: React.FC = () => {
         .order('created_at', { ascending: false });
       if (docError) throw docError;
       
-      const sanitizedDocs = (docData || []).map(doc => ({
-        ...doc,
-        projects: doc.projects || { id: doc.project_id, title: 'Projeto Indefinido' }
-      }));
+      const sanitizedDocs = (docData || []).map(doc => {
+        const projectRelation = doc.projects;
+        return {
+          ...doc,
+          projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+            ? projectRelation
+            : { id: doc.project_id, title: 'Projeto Indefinido' }
+        }
+      });
       setDocuments(sanitizedDocs as Document[]);
 
       const { data: projData, error: projError } = await supabase.from('projects').select('id, title').order('title');

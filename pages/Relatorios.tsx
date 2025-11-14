@@ -67,10 +67,15 @@ const Relatorios: React.FC = () => {
             .select('id, title, status, users:manager_id(full_name)');
         if (projectsError) throw projectsError;
         
-        const sanitizedProjects = (projectsData || []).map(p => ({
+        const sanitizedProjects = (projectsData || []).map(p => {
+          const userRelation = p.users;
+          return {
             ...p,
-            users: p.users || { full_name: 'Responsável Indefinido' }
-        }));
+            users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+              ? userRelation
+              : { full_name: 'Responsável Indefinido' }
+          }
+        });
         setAllProjects(sanitizedProjects);
         setProjectList(sanitizedProjects.map(p => ({ id: p.id, title: p.title })));
 
@@ -79,10 +84,15 @@ const Relatorios: React.FC = () => {
             .select('status, project_id, users:assignee_id(full_name)');
         if (tasksError) throw tasksError;
         
-        const sanitizedTasks = (tasksData || []).map(t => ({
+        const sanitizedTasks = (tasksData || []).map(t => {
+          const userRelation = t.users;
+          return {
             ...t,
-            users: t.users || { full_name: 'Responsável Indefinido' }
-        }));
+            users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+              ? userRelation
+              : { full_name: 'Responsável Indefinido' }
+          }
+        });
         setAllTasks(sanitizedTasks);
 
       } catch (err: any) {

@@ -134,11 +134,19 @@ const Kanban: React.FC = () => {
                 .select('*, projects(id, title), users(id, full_name, avatar_url)');
             if (tasksError) throw tasksError;
             
-            const sanitizedTasks = (tasksData || []).map(task => ({
-                ...task,
-                projects: task.projects || { id: task.project_id, title: 'Projeto Indefinido' },
-                users: task.users || { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
-            }));
+            const sanitizedTasks = (tasksData || []).map(task => {
+                const projectRelation = task.projects;
+                const userRelation = task.users;
+                return {
+                    ...task,
+                    projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+                        ? projectRelation
+                        : { id: task.project_id, title: 'Projeto Indefinido' },
+                    users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+                        ? userRelation
+                        : { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
+                };
+            });
             setTasks((sanitizedTasks as Task[]) || []);
 
             const { data: projectsData, error: projectsError } = await supabase.from('projects').select('id, title').order('title');
@@ -173,10 +181,16 @@ const Kanban: React.FC = () => {
         if (error) {
             setNotification({ type: 'error', message: `Erro ao criar tarefa: ${error.message}` });
         } else if (data) {
+            const projectRelation = data.projects;
+            const userRelation = data.users;
             const sanitizedTask = {
                 ...data,
-                projects: data.projects || projects.find(p => p.id === data.project_id) || { id: data.project_id, title: 'Projeto Indefinido' },
-                users: data.users || users.find(u => u.id === data.assignee_id) || { id: data.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
+                projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+                    ? projectRelation
+                    : { id: data.project_id, title: 'Projeto Indefinido' },
+                users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+                    ? userRelation
+                    : { id: data.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
             };
 
             setTasks(prev => [...prev, sanitizedTask as Task]);

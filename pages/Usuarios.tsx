@@ -69,11 +69,19 @@ const Usuarios: React.FC = () => {
         .select('*, user_levels(name), job_titles(name)');
       if (usersError) throw usersError;
 
-      const sanitizedUsers = (usersData || []).map(user => ({
-        ...user,
-        user_levels: user.user_levels || { name: 'Nível Indefinido' },
-        job_titles: user.job_titles || { name: 'Cargo Indefinido' },
-      }));
+      const sanitizedUsers = (usersData || []).map(user => {
+        const levelRelation = user.user_levels;
+        const titleRelation = user.job_titles;
+        return {
+          ...user,
+          user_levels: (levelRelation && typeof levelRelation === 'object' && !Array.isArray(levelRelation))
+            ? levelRelation
+            : { name: 'Nível Indefinido' },
+          job_titles: (titleRelation && typeof titleRelation === 'object' && !Array.isArray(titleRelation))
+            ? titleRelation
+            : { name: 'Cargo Indefinido' },
+        };
+      });
       setUsers(sanitizedUsers as UserProfile[]);
 
       const { data: levelsData, error: levelsError } = await supabase.from('user_levels').select('*');
@@ -268,9 +276,9 @@ const Usuarios: React.FC = () => {
   const filteredUsers = users.filter(user => {
     if (!user) return false;
     const term = searchTerm.toLowerCase();
-    const nameMatch = typeof user.full_name === 'string' && user.full_name.toLowerCase().includes(term);
-    const levelMatch = user.user_levels && typeof user.user_levels.name === 'string' && user.user_levels.name.toLowerCase().includes(term);
-    const titleMatch = user.job_titles && typeof user.job_titles.name === 'string' && user.job_titles.name.toLowerCase().includes(term);
+    const nameMatch = user.full_name?.toLowerCase().includes(term);
+    const levelMatch = user.user_levels?.name?.toLowerCase().includes(term);
+    const titleMatch = user.job_titles?.name?.toLowerCase().includes(term);
     return nameMatch || levelMatch || titleMatch;
   });
   

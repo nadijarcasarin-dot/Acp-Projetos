@@ -113,11 +113,19 @@ const Projetos: React.FC = () => {
         };
       });
 
-      const sanitizedProjects = projectsWithProgress.map(project => ({
-        ...project,
-        companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
-        users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
-      }));
+      const sanitizedProjects = projectsWithProgress.map(project => {
+        const companyRelation = project.companies;
+        const userRelation = project.users;
+        return {
+          ...project,
+          companies: (companyRelation && typeof companyRelation === 'object' && !Array.isArray(companyRelation)) 
+            ? companyRelation 
+            : { id: project.company_id, name: 'Empresa Indefinida' },
+          users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+            ? userRelation
+            : { id: project.manager_id, full_name: 'Responsável Indefinido' },
+        }
+      });
       setProjects(sanitizedProjects as Project[]);
 
 
@@ -226,7 +234,7 @@ const Projetos: React.FC = () => {
   };
 
   const filteredProjects = projects.filter(project => {
-    if (!project || typeof project.title !== 'string' || !project.companies || typeof project.companies.name !== 'string') {
+    if (!project || !project.title || !project.companies?.name) {
         return false;
     }
     const searchTermLower = searchTerm.toLowerCase();

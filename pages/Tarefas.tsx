@@ -85,11 +85,19 @@ const Tarefas: React.FC = () => {
                 .select('*, projects(id, title), users(id, full_name, avatar_url)');
             if (tasksError) throw tasksError;
 
-            const sanitizedTasks = (tasksData || []).map(task => ({
-              ...task,
-              projects: task.projects || { id: task.project_id, title: 'Projeto Indefinido' },
-              users: task.users || { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
-            }));
+            const sanitizedTasks = (tasksData || []).map(task => {
+                const projectRelation = task.projects;
+                const userRelation = task.users;
+                return {
+                    ...task,
+                    projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+                        ? projectRelation
+                        : { id: task.project_id, title: 'Projeto Indefinido' },
+                    users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+                        ? userRelation
+                        : { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
+                };
+            });
             setTasks(sanitizedTasks as Task[]);
 
             const { data: projectsData, error: projectsError } = await supabase.from('projects').select('id, title').order('title');

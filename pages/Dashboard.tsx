@@ -62,17 +62,19 @@ const Dashboard: React.FC = () => {
                 
                 // Process team workload data
                 const workloadCounts = (tasks || []).reduce((acc: Record<string, number>, task: any) => {
-                    // More robustly check for valid task, user, and user name to prevent crashes
-                    if (task && task.users && typeof task.users.full_name === 'string' && task.users.full_name.trim()) {
-                        const userName = task.users.full_name.trim();
-                        acc[userName] = (acc[userName] || 0) + 1;
+                    // Definitive data shield: Ensures 'users' is a valid object and 'full_name' is a string.
+                    const userRelation = task?.users;
+                    const isUserObject = userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation);
+                    const userName = isUserObject ? (userRelation as { full_name: string }).full_name : null;
+
+                    if (typeof userName === 'string' && userName.trim()) {
+                        const trimmedName = userName.trim();
+                        acc[trimmedName] = (acc[trimmedName] || 0) + 1;
                     }
                     return acc;
                 }, {} as Record<string, number>);
                 
                 const processedWorkloadData = Object.entries(workloadCounts)
-                    // FIX: The type of 'count' from Object.entries might be inferred as 'unknown'.
-                    // Casting it to 'number' ensures type safety for the 'tasks' property.
                     .map(([name, count]): BarChartData => ({ name, tasks: count as number }))
                     .sort((a, b) => b.tasks - a.tasks);
                 setTeamWorkloadData(processedWorkloadData);
