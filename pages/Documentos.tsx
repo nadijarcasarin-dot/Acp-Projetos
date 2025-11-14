@@ -1,81 +1,94 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import { TrashIcon } from '../components/icons/TrashIcon';
 import { DocumentIcon } from '../components/icons/DocumentIcon';
 import { DownloadIcon } from '../components/icons/DownloadIcon';
 import { UploadIcon } from '../components/icons/UploadIcon';
 import { ChevronDownIcon } from '../components/icons/ChevronDownIcon';
 import Modal from '../components/Modal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Notification from '../components/Notification';
 
-
-interface Document {
+interface Project {
+  id: number;
   title: string;
-  description: string;
-  name: string;
-  project: string;
-  date: string;
-  type: string;
 }
 
-const initialDocuments: Document[] = [
-  {
-    title: 'Escopo do Projeto',
-    description: 'Documento detalhando o escopo completo do projeto de herbicida.',
-    name: 'Escopo do Projeto.pdf',
-    project: 'Desenvolvimento de Novo Herbicida',
-    date: '2024-05-02',
-    type: 'pdf',
-  },
-  {
-    title: 'Análise de Risco',
-    description: 'Planilha com a análise de risco e mitigação de problemas.',
-    name: 'Análise de Risco.xlsx',
-    project: 'Desenvolvimento de Novo Herbicida',
-    date: '2024-05-10',
-    type: 'xlsx',
-  },
-  {
-    title: 'Checklist de Auditoria',
-    description: 'Checklist completo para a auditoria anual de conformidade.',
-    name: 'Checklist de Auditoria.docx',
-    project: 'Checklist de Auditoria Anual',
-    date: '2024-07-01',
-    type: 'docx',
-  },
-];
-
-const mockProjects = [
-    'Desenvolvimento de Novo Herbicida',
-    'Sistema de Irrigação Inteligente',
-    'Auditoria Ambiental Anual',
-    'Checklist de Auditoria Anual',
-];
-
-const getFileIconColor = (type: string) => {
-    switch (type) {
-        case 'pdf':
-            return 'text-red-500';
-        case 'xlsx':
-            return 'text-green-500';
-        case 'docx':
-            return 'text-blue-500';
-        default:
-            return 'text-gray-500';
-    }
+interface Document {
+  id: number;
+  title: string;
+  description: string;
+  project_id: number;
+  file_name: string;
+  file_path: string;
+  file_type: string;
+  created_at: string;
+  projects: Project | null;
 }
 
 const emptyForm = {
     title: '',
     description: '',
-    project: '',
+    project_id: '',
     file: null as File | null,
 };
 
+const getFileIconColor = (type?: string) => {
+    if (!type) return 'text-gray-500';
+    if (type.includes('pdf')) return 'text-red-500';
+    if (type.includes('sheet') || type.includes('excel')) return 'text-green-500';
+    if (type.includes('document') || type.includes('word')) return 'text-blue-500';
+    return 'text-gray-500';
+}
+
+const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('pt-BR');
+
 const Documentos: React.FC = () => {
-  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newDocument, setNewDocument] = useState(emptyForm);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [docToDelete, setDocToDelete] = useState<Document | null>(null);
+
   const [selectedProject, setSelectedProject] = useState('Todos');
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: docData, error: docError } = await supabase
+        .from('documents')
+        .select('*, projects(id, title)')
+        .order('created_at', { ascending: false });
+      if (docError) throw docError;
+      
+      const sanitizedDocs = (docData || []).map(doc => ({
+        ...doc,
+        projects: doc.projects || { id: doc.project_id, title: 'Projeto Indefinido' }
+      }));
+      setDocuments(sanitizedDocs as Document[]);
+
+      const { data: projData, error: projError } = await supabase.from('projects').select('id, title').order('title');
+      if (projError) throw projError;
+      setProjects(projData || []);
+
+    } catch (err: any) {
+      setError(`Falha ao carregar dados: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -88,32 +101,120 @@ const Documentos: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newDocument.title && newDocument.file && newDocument.project) {
-        const newDoc: Document = {
-            title: newDocument.title,
-            description: newDocument.description,
-            name: newDocument.file.name,
-            project: newDocument.project,
-            date: new Date().toISOString().split('T')[0],
-            type: newDocument.file.name.split('.').pop() || '',
-        };
-        setDocuments(prev => [newDoc, ...prev]);
-        setIsModalOpen(false);
-        setNewDocument(emptyForm);
-    }
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setNewDocument(emptyForm);
   };
   
-  const filteredDocuments = documents.filter(doc =>
-    selectedProject === 'Todos' ? true : doc.project === selectedProject
-  );
-  
-  const projectsForFilter = ['Todos', ...Array.from(new Set(documents.map(d => d.project)))];
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDocument.file || !newDocument.project_id) {
+        setNotification({ type: 'error', message: 'Por favor, preencha todos os campos obrigatórios.' });
+        return;
+    }
+    setIsUploading(true);
 
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const file = newDocument.file;
+    const filePath = `public/${user?.id || 'anon'}/${crypto.randomUUID()}-${file.name}`;
+
+    const { error: uploadError } = await supabase.storage
+        .from('documentos')
+        .upload(filePath, file);
+
+    if (uploadError) {
+        let friendlyMessage = `Falha no upload: ${uploadError.message}`;
+        if (uploadError.message.toLowerCase().includes('bucket not found')) {
+            friendlyMessage = "Falha no upload: O 'bucket' de armazenamento chamado 'documentos' não foi encontrado. Por favor, crie-o na seção 'Storage' do seu painel Supabase para poder carregar arquivos.";
+        } else if (uploadError.message.toLowerCase().includes('security policy')) {
+            friendlyMessage = "Falha de segurança: Verifique se as políticas de segurança (RLS) para o 'Storage' e para a tabela 'documents' estão configuradas corretamente no Supabase."
+        }
+        setNotification({ type: 'error', message: friendlyMessage });
+        setIsUploading(false);
+        return;
+    }
+
+    const docData = {
+        title: newDocument.title,
+        description: newDocument.description,
+        project_id: parseInt(newDocument.project_id, 10),
+        file_name: file.name,
+        file_path: filePath,
+        file_type: file.type,
+        uploaded_by_id: user?.id || null,
+    };
+
+    const { error: insertError } = await supabase.from('documents').insert([docData]);
+    
+    setIsUploading(false);
+    if (insertError) {
+        // Se a inserção falhar, remova o arquivo que já foi upado.
+        await supabase.storage.from('documentos').remove([filePath]);
+        let friendlyMessage = `Erro ao salvar documento: ${insertError.message}`;
+        if (insertError.message.toLowerCase().includes('security policy')) {
+            friendlyMessage = "Falha de segurança: Verifique se as políticas de segurança (RLS) para a tabela 'documents' estão configuradas corretamente no Supabase."
+        }
+        setNotification({ type: 'error', message: friendlyMessage });
+    } else {
+        setNotification({ type: 'success', message: 'Documento carregado com sucesso!' });
+        closeModal();
+        await fetchData();
+    }
+  };
+
+  const handleDownload = async (filePath: string, fileName: string) => {
+    const { data, error } = await supabase.storage.from('documentos').download(filePath);
+    if (error) {
+      setNotification({ type: 'error', message: `Erro no download: ${error.message}` });
+      return;
+    }
+    const blob = new Blob([data], { type: data.type });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
+  const openDeleteModal = (doc: Document) => {
+    setDocToDelete(doc);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!docToDelete) return;
+
+    const { error: storageError } = await supabase.storage.from('documentos').remove([docToDelete.file_path]);
+    if (storageError) {
+        setNotification({ type: 'error', message: `Erro ao remover arquivo: ${storageError.message}` });
+        setIsDeleteModalOpen(false);
+        return;
+    }
+    
+    const { error: dbError } = await supabase.from('documents').delete().eq('id', docToDelete.id);
+    
+    setIsDeleteModalOpen(false);
+    if (dbError) {
+        setNotification({ type: 'error', message: `Erro ao excluir registro: ${dbError.message}` });
+    } else {
+        setNotification({ type: 'success', message: 'Documento excluído com sucesso!' });
+        setDocuments(prev => prev.filter(d => d.id !== docToDelete.id));
+    }
+    setDocToDelete(null);
+  };
+  
+  const filteredDocuments = documents.filter(doc => {
+    if (!doc) return false;
+    return selectedProject === 'Todos' ? true : (doc.project_id != null && doc.project_id.toString() === selectedProject);
+  });
 
   return (
     <>
+    {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Documentos</h1>
@@ -123,9 +224,10 @@ const Documentos: React.FC = () => {
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
                 className="appearance-none bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                {projectsForFilter.map(project => (
-                    <option key={project} value={project}>
-                        {project === 'Todos' ? 'Filtrar por Projeto: Todos' : project}
+                <option value="Todos">Filtrar por Projeto: Todos</option>
+                {projects.map(project => (
+                    <option key={project.id} value={project.id}>
+                        {project.title}
                     </option>
                 ))}
             </select>
@@ -140,37 +242,40 @@ const Documentos: React.FC = () => {
         </div>
       </div>
       
+      {loading ? <p className="text-center text-gray-500">Carregando documentos...</p> :
+      error ? <p className="text-center text-red-500">{error}</p> :
       <div className="space-y-4">
-        {filteredDocuments.map((doc, index) => (
-          <div key={`${doc.name}-${index}`} className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
+        {filteredDocuments.map((doc) => (
+          <div key={doc.id} className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
             <div className="flex items-center overflow-hidden">
-                <div className={`p-3 rounded-lg mr-4 flex-shrink-0 ${getFileIconColor(doc.type).replace('text-', 'bg-').replace('-500', '-100')}`}>
-                    <DocumentIcon className={`h-6 w-6 ${getFileIconColor(doc.type)}`} />
+                <div className={`p-3 rounded-lg mr-4 flex-shrink-0 ${getFileIconColor(doc.file_type).replace('text-', 'bg-').replace('-500', '-100')}`}>
+                    <DocumentIcon className={`h-6 w-6 ${getFileIconColor(doc.file_type)}`} />
                 </div>
               <div className="truncate">
                 <p className="font-bold text-gray-800 truncate">{doc.title}</p>
                 <p className="text-sm text-gray-600 mb-1 truncate">{doc.description}</p>
                 <p className="text-sm text-gray-500 truncate">
-                  {doc.name} · Projeto: {doc.project} · Enviado em: {doc.date}
+                  {doc.file_name} · Projeto: {doc.projects?.title || 'N/A'} · Enviado em: {formatDate(doc.created_at)}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-4 pl-4">
-              <button className="text-gray-500 hover:text-blue-600">
+              <button onClick={() => handleDownload(doc.file_path, doc.file_name)} className="text-gray-500 hover:text-blue-600" title="Baixar">
                 <DownloadIcon className="h-5 w-5" />
               </button>
-              <button className="text-gray-500 hover:text-red-600">
+              <button onClick={() => openDeleteModal(doc)} className="text-gray-500 hover:text-red-600" title="Excluir">
                 <TrashIcon className="h-5 w-5" />
               </button>
             </div>
           </div>
         ))}
       </div>
+      }
     </div>
 
     <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={closeModal}
         title="Carregar Novo Documento"
       >
         <form onSubmit={handleSubmit}>
@@ -185,9 +290,9 @@ const Documentos: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Projeto</label>
-              <select name="project" value={newDocument.project} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+              <select name="project_id" value={newDocument.project_id} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                 <option value="">Selecione um projeto</option>
-                {mockProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
               </select>
             </div>
             <div>
@@ -214,15 +319,28 @@ const Documentos: React.FC = () => {
             </div>
           </div>
           <div className="flex justify-end pt-6 border-t mt-6">
-            <button type="button" onClick={() => setIsModalOpen(false)} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+            <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={isUploading}>
               Cancelar
             </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
-              Salvar
+            <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400" disabled={isUploading}>
+              {isUploading ? 'Salvando...' : 'Salvar'}
             </button>
           </div>
         </form>
       </Modal>
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Confirmar Exclusão"
+        message={
+          <>
+            Tem certeza que deseja excluir o documento <strong>"{docToDelete?.title}"</strong>?
+            <br />
+            Esta ação removerá o arquivo permanentemente.
+          </>
+        }
+      />
     </>
   );
 };

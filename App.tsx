@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useContext } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import PlaceholderPage from './pages/PlaceholderPage';
@@ -15,10 +16,13 @@ import Dashboard from './pages/Dashboard';
 import Permissoes from './pages/Permissoes';
 import Kanban from './pages/Kanban';
 import Relatorios from './pages/Relatorios';
+import { AuthContext } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
 
 const App: React.FC = () => {
   const [activePage, setActivePage] = useState<Page>('Dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { session, loading } = useContext(AuthContext);
 
   const renderContent = () => {
     switch (activePage) {
@@ -53,6 +57,18 @@ const App: React.FC = () => {
         return <Dashboard />;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen bg-gray-100">
+        <div className="text-gray-600 font-semibold">Carregando...</div>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="bg-gray-100 min-h-screen font-sans">

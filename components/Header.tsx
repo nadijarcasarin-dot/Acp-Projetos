@@ -1,11 +1,15 @@
-import React from 'react';
+
+import React, { useContext } from 'react';
 import { MenuAlt1Icon } from './icons/MenuAlt1Icon';
+import { AuthContext } from '../contexts/AuthContext';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
+  const { userProfile } = useContext(AuthContext);
+
   return (
     <header className="flex justify-between items-center p-4">
       <button 
@@ -17,12 +21,12 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
       </button>
       <div className="flex items-center">
         <div className="text-right mr-4">
-          <p className="font-semibold text-gray-800">Ana Lúcia</p>
-          <p className="text-sm text-gray-500">Gerente de Projetos</p>
+          <p className="font-semibold text-gray-800">{userProfile?.full_name || 'Usuário'}</p>
+          <p className="text-sm text-gray-500">{userProfile?.job_titles?.name || 'Cargo'}</p>
         </div>
         <img
           className="h-12 w-12 rounded-full object-cover"
-          src="https://picsum.photos/id/433/100/100"
+          src={userProfile?.avatar_url || `https://i.pravatar.cc/150?u=${userProfile?.id}`}
           alt="User avatar"
         />
       </div>

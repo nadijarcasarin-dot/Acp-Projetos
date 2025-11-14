@@ -1,44 +1,13 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts';
 import BarChartCard from '../components/BarChartCard';
 import type { ChartData } from '../types';
 import { SparklesIcon } from '../components/icons/SparklesIcon';
 import { ChevronDownIcon } from '../components/icons/ChevronDownIcon';
+import { supabase } from '../lib/supabaseClient';
 
-const projectStatusData: ChartData[] = [
-  { name: 'Pendente', value: 4 },
-  { name: 'Em Andamento', value: 12 },
-  { name: 'Atrasado', value: 2 },
-  { name: 'Concluído', value: 18 },
-];
-
-const taskStatusData: ChartData[] = [
-  { name: 'Pendente', value: 8 },
-  { name: 'Em Andamento', value: 15 },
-  { name: 'Atrasado', value: 3 },
-  { name: 'Concluída', value: 25 },
-];
-
-const projectsByUserData = [
-    { name: 'Fernanda Lima', projects: 4 },
-    { name: 'Roberto Silva', projects: 5 },
-    { name: 'Juliana Costa', projects: 6 },
-    { name: 'Carlos Pereira', projects: 7 },
-    { name: 'Ana Lúcia', projects: 4 },
-];
-
-const tasksByUserData = [
-    { name: 'Mariana Alves', tasks: 2 },
-    { name: 'Lucas Martins', tasks: 9 },
-    { name: 'Fernanda Lima', tasks: 6 },
-    { name: 'Roberto Silva', tasks: 8 },
-    { name: 'Juliana Costa', tasks: 10 },
-    { name: 'Carlos Pereira', tasks: 11 },
-    { name: 'Ana Lúcia', tasks: 5 },
-];
-
-const COLORS = ['#6b7280', '#3b82f6', '#ef4444', '#10b981'];
+const COLORS = ['#6b7280', '#3b82f6', '#ef4444', '#10b981']; // Pendente, Em Andamento, Atrasado, Concluído
+const CHART_LABELS = ['Pendente', 'Em Andamento', 'Atrasado', 'Concluído'];
 
 const AiButton: React.FC = () => (
     <div className="border-t mt-4 pt-4">
@@ -49,19 +18,7 @@ const AiButton: React.FC = () => (
     </div>
 );
 
-const FilterableCardHeader: React.FC<{title: string}> = ({ title }) => (
-    <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-        <div className="relative">
-            <select className="appearance-none bg-gray-100 border border-gray-200 rounded-md py-1 pl-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option>Todos os Projetos</option>
-            </select>
-            <ChevronDownIcon className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
-        </div>
-    </div>
-);
-
-const CustomDonutCard: React.FC<{title:string, data: ChartData[], colors: string[]}> = ({title, data, colors}) => (
+const CustomDonutCard: React.FC<{data: ChartData[], colors: string[]}> = ({data, colors}) => (
     <div style={{ width: '100%', height: 250 }}>
         <ResponsiveContainer>
           <PieChart>
@@ -86,21 +43,148 @@ const CustomDonutCard: React.FC<{title:string, data: ChartData[], colors: string
 )
 
 const Relatorios: React.FC = () => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [allProjects, setAllProjects] = useState<any[]>([]);
+  const [allTasks, setAllTasks] = useState<any[]>([]);
+  const [projectList, setProjectList] = useState<{ id: number; title: string }[]>([]);
+
+  const [selectedProject, setSelectedProject] = useState('Todos');
+
+  const [projectStatusData, setProjectStatusData] = useState<ChartData[]>([]);
+  const [taskStatusData, setTaskStatusData] = useState<ChartData[]>([]);
+  const [projectsByUserData, setProjectsByUserData] = useState<any[]>([]);
+  const [tasksByUserData, setTasksByUserData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: projectsData, error: projectsError } = await supabase
+            .from('projects')
+            .select('id, title, status, users:manager_id(full_name)');
+        if (projectsError) throw projectsError;
+        
+        const sanitizedProjects = (projectsData || []).map(p => ({
+            ...p,
+            users: p.users || { full_name: 'Responsável Indefinido' }
+        }));
+        setAllProjects(sanitizedProjects);
+        setProjectList(sanitizedProjects.map(p => ({ id: p.id, title: p.title })));
+
+        const { data: tasksData, error: tasksError } = await supabase
+            .from('tasks')
+            .select('status, project_id, users:assignee_id(full_name)');
+        if (tasksError) throw tasksError;
+        
+        const sanitizedTasks = (tasksData || []).map(t => ({
+            ...t,
+            users: t.users || { full_name: 'Responsável Indefinido' }
+        }));
+        setAllTasks(sanitizedTasks);
+
+      } catch (err: any) {
+        setError(`Falha ao carregar dados dos relatórios: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    // --- Process non-filterable charts ---
+    // Project Status
+    const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    allProjects.forEach(p => {
+      if (p && p.status) {
+        const status = p.status === 'Em andamento' ? 'Em Andamento' : p.status;
+        if (projectCounts.hasOwnProperty(status)) projectCounts[status]++;
+      }
+    });
+    setProjectStatusData(CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] })));
+
+    // Projects by User
+    const managerCounts = allProjects.reduce((acc, project) => {
+      const managerName = project?.users?.full_name;
+      if (managerName) acc[managerName] = (acc[managerName] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    setProjectsByUserData(Object.entries(managerCounts).map(([name, projects]) => ({ name, projects })));
+
+  }, [allProjects, loading]);
+  
+  useEffect(() => {
+    if(loading) return;
+    
+    // --- Process filterable charts ---
+    const tasksToProcess = selectedProject === 'Todos'
+        ? allTasks
+        : allTasks.filter(t => t.project_id?.toString() === selectedProject);
+
+    // Task Status
+    const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    tasksToProcess.forEach(t => {
+      if (t && t.status) {
+        let status = t.status;
+        if (status === 'Em Andamento') status = 'Em Andamento';
+        else if (status === 'Atrasada') status = 'Atrasado';
+        else if (status === 'Concluída') status = 'Concluído';
+        if (taskCounts.hasOwnProperty(status)) taskCounts[status]++;
+      }
+    });
+    setTaskStatusData(CHART_LABELS.map(label => ({ name: label, value: taskCounts[label] })));
+    
+    // Tasks by User
+    const userTaskCounts = tasksToProcess.reduce((acc, task) => {
+        const userName = task?.users?.full_name;
+        if (userName) acc[userName] = (acc[userName] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    setTasksByUserData(Object.entries(userTaskCounts).map(([name, tasks]) => ({ name, tasks })));
+
+  }, [allTasks, selectedProject, loading]);
+
+  if (loading) return <div className="p-6 text-center text-gray-500">Carregando relatórios...</div>;
+  if (error) return <div className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</div>;
+  
+  const selectedProjectTitle = projectList.find(p => p.id.toString() === selectedProject)?.title;
+
   return (
     <div className="p-6">
-       <h1 className="text-3xl font-bold text-gray-800 mb-6">Relatórios</h1>
+       <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-800">Relatórios</h1>
+            <div className="relative">
+                <label className="text-sm font-medium text-gray-700 mr-2">Filtrar por Projeto:</label>
+                <select 
+                    value={selectedProject} 
+                    onChange={(e) => setSelectedProject(e.target.value)}
+                    className="appearance-none bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                    <option value="Todos">Todos os Projetos</option>
+                    {projectList.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
+                <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+            </div>
+        </div>
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Status por Projetos</h3>
                 <div className="flex-grow">
-                    <CustomDonutCard data={projectStatusData} colors={COLORS} title="Status por Projetos" />
+                    <CustomDonutCard data={projectStatusData} colors={COLORS} />
                 </div>
                 <AiButton />
             </div>
              <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
-                <FilterableCardHeader title="Status por Tarefas" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Status por Tarefas {selectedProject !== 'Todos' && <span className="text-base font-normal text-gray-500">- {selectedProjectTitle}</span>}
+                </h3>
                 <div className="flex-grow">
-                    <CustomDonutCard data={taskStatusData} colors={COLORS} title="Status por Tarefas" />
+                    <CustomDonutCard data={taskStatusData} colors={COLORS} />
                 </div>
                 <AiButton />
             </div>
@@ -111,8 +195,10 @@ const Relatorios: React.FC = () => {
                  <AiButton />
             </div>
              <div className="bg-white p-6 rounded-lg shadow-md flex flex-col">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Tarefas por Usuário {selectedProject !== 'Todos' && <span className="text-base font-normal text-gray-500">- {selectedProjectTitle}</span>}
+                </h3>
                 <div className="flex-grow">
-                    <FilterableCardHeader title="Tarefas por Usuário" />
                     <BarChartCard title="" data={tasksByUserData} barColor="#3b82f6" dataKey="tasks" />
                 </div>
                 <AiButton />

@@ -1,6 +1,5 @@
-
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { FolderIcon } from '../components/icons/FolderIcon';
 import { CheckCircleIcon } from '../components/icons/CheckCircleIcon';
@@ -9,69 +8,45 @@ import { UserGroupIcon } from '../components/icons/UserGroupIcon';
 import { SparklesIcon } from '../components/icons/SparklesIcon';
 import { CalendarIcon } from '../components/icons/CalendarIcon';
 import { PencilIcon } from '../components/icons/PencilIcon';
+import { TrashIcon } from '../components/icons/TrashIcon';
 import Modal from '../components/Modal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Notification from '../components/Notification';
 
-interface Project {
-  title: string;
-  empresa: string;
-  responsavel: string;
-  dataInicio: string;
-  dataTermino: string;
-  description: string;
-  progress: number;
-  status: string;
-  avatars: string[];
+interface Company {
+  id: number;
+  name: string;
 }
 
-const initialProjects: Project[] = [
-  {
-    title: 'Desenvolvimento de Novo Herbicida',
-    empresa: 'AgroCorp',
-    responsavel: 'Ana Lúcia',
-    dataInicio: '2024-01-15',
-    dataTermino: '2024-12-20',
-    description: 'Projeto de pesquisa e desenvolvimento de um novo herbicida mais eficiente e ecológico.',
-    progress: 50,
-    status: 'Em andamento',
-    avatars: ['https://i.pravatar.cc/150?img=1', 'https://i.pravatar.cc/150?img=2', 'https://i.pravatar.cc/150?img=3', 'https://i.pravatar.cc/150?img=4'],
-  },
-  {
-    title: 'Sistema de Irrigação Inteligente',
-    empresa: 'Fazenda Sol Nascente',
-    responsavel: 'Bruno Costa',
-    dataInicio: '2023-09-01',
-    dataTermino: '2024-03-31',
-    description: 'Implementação de um sistema de irrigação automatizado baseado em sensores de umidade do solo.',
-    progress: 100,
-    status: 'Concluído',
-    avatars: ['https://i.pravatar.cc/150?img=5'],
-  },
-  {
-    title: 'Auditoria Ambiental Anual',
-    empresa: 'Indústria Verde',
-    responsavel: 'Carla Dias',
-    dataInicio: '2024-06-01',
-    dataTermino: '2024-08-31',
-    description: 'Auditoria completa dos processos da empresa para conformidade com as normas ambientais.',
-    progress: 33,
-    status: 'Atrasado',
-    avatars: ['https://i.pravatar.cc/150?img=6', 'https://i.pravatar.cc/150?img=7'],
-  },
-];
+interface User {
+  id: string;
+  full_name: string;
+}
 
-const emptyProject: Omit<Project, 'progress' | 'status' | 'avatars'> = {
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+  start_date: string;
+  end_date: string;
+  progress: number;
+  status: string;
+  company_id: number;
+  manager_id: string;
+  companies: Company | null;
+  users: User | null;
+}
+
+const emptyProject: Partial<Project> = {
   title: '',
-  empresa: '',
-  responsavel: '',
-  dataInicio: '',
-  dataTermino: '',
   description: '',
+  company_id: undefined,
+  manager_id: undefined,
+  start_date: '',
+  end_date: '',
+  progress: 0,
+  status: 'Pendente',
 };
-
-// Mock data to simulate fetching from DB
-const mockEmpresas = ['AgroTech Soluções', 'Campo Forte Insumos', 'Terra Boa Agronegócios', 'Grão de Ouro Coop.', 'Fazenda Bela Vista', 'AgroCorp', 'Fazenda Sol Nascente', 'Indústria Verde'];
-const mockResponsaveis = ['Ana Lúcia', 'Bruno Costa', 'Carla Dias', 'Alice Silva', 'Daniel Souza'];
-
 
 const getStatusClass = (status: string) => {
   switch (status) {
@@ -89,46 +64,171 @@ const getProgressClass = (status: string) => {
       case 'Em andamento': return 'bg-blue-500';
       default: return 'bg-gray-500';
     }
-  };
+};
 
 const formatDate = (dateString: string) => {
+  if (!dateString) return 'N/A';
   return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 };
 
 const Projetos: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newProject, setNewProject] = useState(emptyProject);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [currentProject, setCurrentProject] = useState<Partial<Project>>(emptyProject);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewProject(prev => ({ ...prev, [name]: value }));
-  };
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: projectsData, error: projectsError } = await supabase
+        .from('projects')
+        .select('*, companies(id, name), users:manager_id(id, full_name)');
 
-  const handleAddNewProject = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newProject.title.trim() && newProject.empresa && newProject.responsavel && newProject.dataInicio && newProject.dataTermino) {
-      const projectToAdd: Project = {
-        ...newProject,
-        progress: 0,
-        status: 'Em andamento',
-        avatars: [],
-      };
-      setProjects(prev => [projectToAdd, ...prev]);
-      setNewProject(emptyProject);
-      setIsModalOpen(false);
+      if (projectsError) throw projectsError;
+      
+      const sanitizedProjects = (projectsData || []).map(project => ({
+        ...project,
+        companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
+        users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
+      }));
+      setProjects(sanitizedProjects as Project[]);
+
+
+      const { data: companiesData, error: companiesError } = await supabase.from('companies').select('id, name').order('name');
+      if (companiesError) throw companiesError;
+      setCompanies(companiesData || []);
+
+      const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name');
+      if (usersError) throw usersError;
+      setUsers(usersData || []);
+
+    } catch (err: any) {
+      setError(`Falha ao buscar dados: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredProjects = projects.filter(project =>
-    project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    project.empresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    project.description.toLowerCase().includes(searchTerm.toLowerCase())
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const openModalForNew = () => {
+    setCurrentProject(emptyProject);
+    setIsEditing(false);
+    setIsModalOpen(true);
+  };
+
+  const openModalForEdit = (project: Project) => {
+    setCurrentProject(project);
+    setIsEditing(true);
+    setIsModalOpen(true);
+  };
+
+  const openDeleteModal = (project: Project) => {
+    setProjectToDelete(project);
+    setIsDeleteModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setCurrentProject(emptyProject);
+    setError(null);
+  };
+  
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setCurrentProject(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const companyId = currentProject.company_id ? parseInt(currentProject.company_id as any, 10) : null;
+    if (!companyId) {
+      setError("Por favor, selecione uma empresa válida.");
+      return;
+    }
+
+    if (!currentProject.manager_id) {
+      setError("Por favor, selecione um responsável válido.");
+      return;
+    }
+
+    const projectData = {
+      title: currentProject.title,
+      description: currentProject.description,
+      company_id: companyId,
+      manager_id: currentProject.manager_id,
+      start_date: currentProject.start_date,
+      end_date: currentProject.end_date,
+      progress: isEditing ? currentProject.progress : 0,
+      status: currentProject.status || 'Pendente',
+    };
+    
+    let query;
+    if (isEditing) {
+      query = supabase.from('projects').update(projectData).eq('id', currentProject.id);
+    } else {
+      query = supabase.from('projects').insert([projectData]);
+    }
+    
+    const { error } = await query;
+    if (error) {
+      setError(error.message);
+    } else {
+      closeModal();
+      await fetchData();
+      setNotification({ type: 'success', message: `Projeto ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
+    }
+  };
+  
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    const { error } = await supabase.from('projects').delete().eq('id', projectToDelete.id);
+    
+    setIsDeleteModalOpen(false);
+    if (error) {
+        setNotification({ type: 'error', message: `Erro ao excluir: ${error.message}` });
+    } else {
+        setNotification({ type: 'success', message: 'Projeto excluído com sucesso!' });
+        setProjects(prev => prev.filter(p => p.id !== projectToDelete.id));
+    }
+    setProjectToDelete(null);
+  };
+
+  const filteredProjects = projects.filter(project => {
+    if (!project) return false;
+    const searchTermLower = searchTerm.toLowerCase();
+    const titleMatch = typeof project.title === 'string' && project.title.toLowerCase().includes(searchTermLower);
+    const companyMatch = project.companies && typeof project.companies.name === 'string' && project.companies.name.toLowerCase().includes(searchTermLower);
+    return titleMatch || companyMatch;
+  });
+  
+  const renderModalFooter = () => (
+    <>
+      <button type="button" onClick={closeModal} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+        Cancelar
+      </button>
+      <button type="submit" form="project-form" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
+        Salvar
+      </button>
+    </>
   );
 
   return (
     <>
+    {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Painel</h1>
@@ -144,7 +244,7 @@ const Projetos: React.FC = () => {
             />
           </div>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openModalForNew}
             className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200">
             + Novo Projeto
           </button>
@@ -176,7 +276,7 @@ const Projetos: React.FC = () => {
         <div className="bg-white p-4 rounded-lg shadow-md flex items-center">
             <div className="bg-gray-100 p-3 rounded-lg mr-4"><UserGroupIcon className="h-6 w-6 text-gray-600" /></div>
             <div>
-                <p className="text-3xl font-bold text-gray-800">5</p>
+                <p className="text-3xl font-bold text-gray-800">{users.length}</p>
                 <p className="text-gray-500">Usuários Ativos</p>
             </div>
         </div>
@@ -184,108 +284,120 @@ const Projetos: React.FC = () => {
       
       <div>
         <h2 className="text-2xl font-bold text-gray-800 mb-4">Projetos Ativos</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProjects.map(project => (
-                <div key={project.title} className="bg-white p-6 rounded-lg shadow-md flex flex-col">
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                            <h3 className="text-lg font-bold text-gray-800 cursor-pointer hover:text-blue-600">{project.title}</h3>
-                            <p className="text-sm text-gray-500">Empresa: {project.empresa}</p>
-                             <div className="flex items-center text-xs text-gray-400 mt-1">
-                                <CalendarIcon className="h-4 w-4 mr-1"/>
-                                <span>{formatDate(project.dataInicio)} - {formatDate(project.dataTermino)}</span>
+         {loading ? <p className="text-center text-gray-500">Carregando projetos...</p> : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredProjects.map(project => (
+                    <div key={project.id} className="bg-white p-6 rounded-lg shadow-md flex flex-col">
+                        <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1">
+                                <h3 className="text-lg font-bold text-gray-800 cursor-pointer hover:text-blue-600">{project.title}</h3>
+                                <p className="text-sm text-gray-500">Empresa: {project.companies?.name || 'N/A'}</p>
+                                 <div className="flex items-center text-xs text-gray-400 mt-1">
+                                    <CalendarIcon className="h-4 w-4 mr-1"/>
+                                    <span>{formatDate(project.start_date)} - {formatDate(project.end_date)}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
+                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusClass(project.status)}`}>{project.status}</span>
+                               <button onClick={() => openModalForEdit(project)} className="text-gray-400 hover:text-blue-600" title="Editar projeto">
+                                <PencilIcon className="h-5 w-5" />
+                              </button>
+                               <button onClick={() => openDeleteModal(project)} className="text-gray-400 hover:text-red-600" title="Excluir projeto">
+                                <TrashIcon className="h-5 w-5" />
+                              </button>
                             </div>
                         </div>
-                        <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusClass(project.status)}`}>{project.status}</span>
-                          <button className="text-gray-400 hover:text-blue-600" title="Editar projeto">
-                            <PencilIcon className="h-5 w-5" />
-                          </button>
-                        </div>
-                    </div>
-                    <p className="text-sm text-gray-600 flex-grow mb-4">{project.description}</p>
-                    <div>
-                        <div className="flex justify-between items-center mb-1">
-                            <span className="text-sm text-gray-500">Progresso</span>
-                            <span className="text-sm font-semibold text-gray-800">{project.progress}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div className={`${getProgressClass(project.status)} h-2 rounded-full`} style={{width: `${project.progress}%`}}></div>
-                        </div>
-                    </div>
-                    <div className="border-t mt-4 pt-4 flex justify-between items-center">
-                        <div className="flex items-center">
-                            <div className="flex -space-x-2">
-                                {project.avatars.slice(0, 2).map((avatar, i) => (
-                                    <img key={i} className="inline-block h-8 w-8 rounded-full ring-2 ring-white" src={avatar} alt="" />
-                                ))}
-                                {project.avatars.length > 2 && (
-                                     <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-semibold text-gray-600 ring-2 ring-white z-10 ml-[-8px]">
-                                         +1
-                                     </div>
-                                )}
+                        <p className="text-sm text-gray-600 flex-grow mb-4">{project.description}</p>
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm text-gray-500">Progresso</span>
+                                <span className="text-sm font-semibold text-gray-800">{project.progress}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div className={`${getProgressClass(project.status)} h-2 rounded-full`} style={{width: `${project.progress}%`}}></div>
                             </div>
                         </div>
-                        <button className="flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800">
-                            <SparklesIcon className="h-4 w-4 mr-1"/>
-                            Resumo com IA
-                        </button>
+                        <div className="border-t mt-4 pt-4 flex justify-between items-center">
+                            <div>
+                               <p className="text-sm text-gray-500">Responsável: <strong>{project.users?.full_name || 'N/A'}</strong></p>
+                            </div>
+                            <button className="flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800">
+                                <SparklesIcon className="h-4 w-4 mr-1"/>
+                                Resumo com IA
+                            </button>
+                        </div>
                     </div>
-                </div>
-            ))}
-        </div>
+                ))}
+            </div>
+         )}
       </div>
     </div>
     <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Adicionar Novo Projeto"
+        onClose={closeModal}
+        title={isEditing ? 'Editar Projeto' : 'Adicionar Novo Projeto'}
+        footer={renderModalFooter()}
       >
-        <form onSubmit={handleAddNewProject}>
+        <form id="project-form" onSubmit={handleSubmit}>
+          {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4 text-sm" role="alert">{error}</div>}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Título do Projeto</label>
-              <input type="text" name="title" value={newProject.title} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
+              <input type="text" name="title" value={currentProject.title || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-              <textarea name="description" value={newProject.description} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <textarea name="description" value={currentProject.description || ''} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
-              <select name="empresa" value={newProject.empresa} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+              <select name="company_id" value={currentProject.company_id || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                 <option value="">Selecione uma empresa</option>
-                {mockEmpresas.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
              <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Responsável</label>
-              <select name="responsavel" value={newProject.responsavel} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+              <select name="manager_id" value={currentProject.manager_id || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                 <option value="">Selecione um responsável</option>
-                {mockResponsaveis.map(resp => <option key={resp} value={resp}>{resp}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Data de Início</label>
-                    <input type="date" name="dataInicio" value={newProject.dataInicio} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    <input type="date" name="start_date" value={currentProject.start_date || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Data de Término</label>
-                    <input type="date" name="dataTermino" value={newProject.dataTermino} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    <input type="date" name="end_date" value={currentProject.end_date || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
             </div>
-          </div>
-          <div className="flex justify-end pt-6 border-t mt-6">
-            <button type="button" onClick={() => setIsModalOpen(false)} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
-              Cancelar
-            </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
-              Salvar
-            </button>
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select name="status" value={currentProject.status || 'Pendente'} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <option value="Pendente">Pendente</option>
+                    <option value="Em andamento">Em andamento</option>
+                    <option value="Concluído">Concluído</option>
+                    <option value="Atrasado">Atrasado</option>
+                </select>
+            </div>
           </div>
         </form>
       </Modal>
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Confirmar Exclusão de Projeto"
+        message={
+          <>
+            Tem certeza que deseja excluir o projeto <strong>"{projectToDelete?.title}"</strong>?
+            <br />
+            Esta ação não pode ser desfeita.
+          </>
+        }
+      />
     </>
   );
 };

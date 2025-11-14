@@ -1,135 +1,302 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { PencilIcon } from '../components/icons/PencilIcon';
 import { TrashIcon } from '../components/icons/TrashIcon';
 import { MailIcon } from '../components/icons/MailIcon';
 import { PhoneIcon } from '../components/icons/PhoneIcon';
+import { UsersIcon } from '../components/icons/UsersIcon';
 import Modal from '../components/Modal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Notification from '../components/Notification';
+import { supabase } from '../lib/supabaseClient';
 
-interface User {
+interface UserLevel {
+  id: number;
   name: string;
-  role: string;
-  title: string;
-  email: string;
-  phone: string;
-  avatar: string;
 }
 
-const initialUsers: User[] = [
-  {
-    name: 'Alice Silva',
-    role: 'Administrador',
-    title: 'Engenheiro Ambiental',
-    email: 'alice.silva@intelliproject.com',
-    phone: '(11) 98765-4321',
-    avatar: 'https://i.pravatar.cc/150?img=1',
-  },
-  {
-    name: 'Bruno Costa',
-    role: 'Gestor de projetos',
-    title: 'Agrônomo',
-    email: 'bruno.costa@intelliproject.com',
-    phone: '(21) 91234-5678',
-    avatar: 'https://i.pravatar.cc/150?img=2',
-  },
-  {
-    name: 'Carla Dias',
-    role: 'Colaborador',
-    title: 'Veterinário',
-    email: 'carla.dias@intelliproject.com',
-    phone: '(31) 95555-1212',
-    avatar: 'https://i.pravatar.cc/150?img=5',
-  },
-];
+interface JobTitle {
+  id: number;
+  name: string;
+}
 
-const emptyUser: Omit<User, 'avatar'> = {
-  name: '',
-  role: '',
-  title: '',
-  email: '',
-  phone: '',
+interface UserProfile {
+  id: string; // UUID from auth.users
+  full_name: string;
+  phone: string;
+  avatar_url: string;
+  user_level_id: number;
+  job_title_id: number;
+  user_levels: { name: string } | null;
+  job_titles: { name: string } | null;
+}
+
+const emptyNewUserForm = {
+    email: '',
+    password: '',
+    full_name: '',
+    phone: '',
+    user_level_id: '',
+    job_title_id: '',
 };
 
-// Data that would come from the database
-const availableRoles = [
-    'Administrador',
-    'Gerente de Projetos',
-    'Gestor de projetos',
-    'Membro da Equipe',
-    'Colaborador',
-    'Cliente',
-    'Visualizador',
-];
-  
-const availableTitles = [
-    'Gerente de Projetos',
-    'Desenvolvedor Front-end',
-    'Desenvolvedor Back-end',
-    'Designer UI/UX',
-    'Analista de Qualidade (QA)',
-    'Analista de DevOps',
-    'Engenheiro Ambiental',
-    'Agrônomo',
-    'Veterinário',
-];
-
-
 const Usuarios: React.FC = () => {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newUser, setNewUser] = useState(emptyUser);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [newUser, setNewUser] = useState(emptyNewUserForm);
   const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  
+  const [availableLevels, setAvailableLevels] = useState<UserLevel[]>([]);
+  const [availableTitles, setAvailableTitles] = useState<JobTitle[]>([]);
+  
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('*, user_levels(name), job_titles(name)');
+      if (usersError) throw usersError;
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    if (name === 'phone') {
-      let v = value.replace(/\D/g, '');
-      v = v.substring(0, 11);
+      const sanitizedUsers = (usersData || []).map(user => ({
+        ...user,
+        user_levels: user.user_levels || { name: 'Nível Indefinido' },
+        job_titles: user.job_titles || { name: 'Cargo Indefinido' },
+      }));
+      setUsers(sanitizedUsers as UserProfile[]);
 
-      if (v.length >= 11) {
-        v = v.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
-      } else if (v.length > 6) {
-        v = v.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
-      } else if (v.length > 2) {
-        v = v.replace(/(\d{2})(\d*)/, '($1) $2');
-      }
+      const { data: levelsData, error: levelsError } = await supabase.from('user_levels').select('*');
+      if (levelsError) throw levelsError;
+      setAvailableLevels(levelsData || []);
       
-      setNewUser(prev => ({ ...prev, phone: v }));
-    } else {
-      setNewUser(prev => ({ ...prev, [name]: value }));
+      const { data: titlesData, error: titlesError } = await supabase.from('job_titles').select('*');
+      if (titlesError) throw titlesError;
+      setAvailableTitles(titlesData || []);
+
+    } catch (err: any) {
+      setError(`Falha ao buscar dados: ${err.message}`);
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleAddNewUser = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchData();
+  }, []);
+  
+  const openEditModal = (user: UserProfile) => {
+    setIsEditing(true);
+    setEditingUser(user);
+    setIsModalOpen(true);
+  };
+  
+  const openAddModal = () => {
+    setIsEditing(false);
+    setNewUser(emptyNewUserForm);
+    setIsModalOpen(true);
+  }
+  
+  const openDeleteModal = (user: UserProfile) => {
+    setUserToDelete(user);
+    setIsDeleteModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingUser(null);
+    setNewUser(emptyNewUserForm);
+    setError(null);
+    setAvatarFile(null);
+    setAvatarPreview(null);
+  }
+  
+  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (!editingUser) return;
+    const { name, value } = e.target;
+    setEditingUser(prev => ({ ...prev!, [name]: value }));
+  };
+
+  const handleNewUserInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setNewUser(prev => ({ ...prev, [name]: value }));
+  };
+  
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setAvatarFile(file);
+      const previewUrl = URL.createObjectURL(file);
+      setAvatarPreview(previewUrl);
+    }
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    // FIX: Check if field is a string before calling trim to avoid type errors.
-    if (Object.values(newUser).every(field => typeof field === 'string' && field.trim() !== '')) {
-       const userWithAvatar: User = {
-        ...newUser,
-        avatar: `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 70)}`
-      };
-      setUsers([...users, userWithAvatar]);
-      setNewUser(emptyUser);
-      setIsModalOpen(false);
+    if (!editingUser) return;
+    setError(null);
+    setSaving(true);
+  
+    try {
+      let avatarUrl = editingUser.avatar_url;
+  
+      if (avatarFile) {
+        const filePath = `public/${editingUser.id}/${Date.now()}_${avatarFile.name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, avatarFile, { upsert: true });
+  
+        if (uploadError) throw uploadError;
+  
+        const { data: urlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+        
+        avatarUrl = urlData.publicUrl;
+      }
+  
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ 
+          full_name: editingUser.full_name,
+          phone: editingUser.phone,
+          user_level_id: editingUser.user_level_id,
+          job_title_id: editingUser.job_title_id,
+          avatar_url: avatarUrl,
+        })
+        .eq('id', editingUser.id);
+  
+      if (updateError) throw updateError;
+      
+      closeModal();
+      await fetchData();
+      setNotification({ type: 'success', message: 'Usuário atualizado com sucesso!' });
+    } catch (err: any) {
+      if (err.message.includes('violates row-level security policy')) {
+        setError("Falha de segurança: Você não tem permissão para atualizar este usuário. Verifique se as políticas de segurança (RLS) da tabela 'users' no Supabase permitem a atualização (UPDATE).");
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.title.toLowerCase().includes(searchTerm.toLowerCase())
+  const handleAddNewUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSaving(true);
+    
+    try {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: newUser.email,
+          password: newUser.password,
+        });
+
+        if (authError) throw authError;
+
+        if (authData.user) {
+            let avatarUrl = null;
+            if (avatarFile) {
+                const filePath = `public/${authData.user.id}/${Date.now()}_${avatarFile.name}`;
+                const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, avatarFile);
+                if (uploadError) throw uploadError;
+                const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+                avatarUrl = urlData.publicUrl;
+            }
+
+            const { error: profileError } = await supabase
+                .from('users')
+                .insert({
+                    id: authData.user.id,
+                    full_name: newUser.full_name,
+                    phone: newUser.phone,
+                    user_level_id: newUser.user_level_id,
+                    job_title_id: newUser.job_title_id,
+                    avatar_url: avatarUrl,
+                });
+            
+            if (profileError) throw profileError;
+
+            closeModal();
+            await fetchData();
+            setNotification({ type: 'success', message: 'Usuário criado com sucesso!' });
+        }
+    } catch (err: any) {
+        if (err.message.includes('violates row-level security policy')) {
+          setError("Falha de segurança: Você não tem permissão para criar este usuário. Verifique se as políticas de segurança (RLS) da tabela 'users' no Supabase permitem a inserção (INSERT).");
+        } else {
+          setError(err.message);
+        }
+    } finally {
+        setSaving(false);
+    }
+  };
+  
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userToDelete.id);
+    
+    setIsDeleteModalOpen(false);
+
+    if (error) {
+      setNotification({ type: 'error', message: `Erro ao excluir perfil: ${error.message}` });
+    } else {
+      setNotification({ type: 'success', message: 'Perfil do usuário excluído com sucesso!' });
+      setUsers(prevUsers => prevUsers.filter(u => u.id !== userToDelete.id));
+    }
+    setUserToDelete(null);
+  };
+
+
+  const filteredUsers = users.filter(user => {
+    if (!user) return false;
+    const term = searchTerm.toLowerCase();
+    const nameMatch = typeof user.full_name === 'string' && user.full_name.toLowerCase().includes(term);
+    const levelMatch = user.user_levels && typeof user.user_levels.name === 'string' && user.user_levels.name.toLowerCase().includes(term);
+    const titleMatch = user.job_titles && typeof user.job_titles.name === 'string' && user.job_titles.name.toLowerCase().includes(term);
+    return nameMatch || levelMatch || titleMatch;
+  });
+  
+  const renderModalFooter = () => (
+    <>
+      <button type="button" onClick={closeModal} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={saving}>
+        Cancelar
+      </button>
+      <button type="submit" form="user-form" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400" disabled={saving}>
+        {saving ? 'Salvando...' : (isEditing ? 'Salvar Alterações' : 'Criar Usuário')}
+      </button>
+    </>
   );
 
   return (
     <>
+      {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Gerenciamento de Usuários</h1>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200">
-            + Adicionar Usuário
-          </button>
+           <button
+              onClick={openAddModal}
+              className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200"
+            >
+              + Novo Usuário
+            </button>
         </div>
 
         <div className="relative mb-6">
@@ -142,84 +309,140 @@ const Usuarios: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-
-        <div className="space-y-4">
-          {filteredUsers.map((user) => (
-            <div key={user.email} className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
-              <div className="flex items-center">
-                <img src={user.avatar} alt={user.name} className="h-16 w-16 rounded-full mr-4" />
-                <div>
-                  <p className="font-bold text-lg text-gray-800">{user.name}</p>
-                  <p className="text-gray-600">{user.role} · {user.title}</p>
-                  <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                    <div className="flex items-center">
-                      <MailIcon className="h-4 w-4 mr-1" />
-                      <span>{user.email}</span>
+        
+        {loading ? <p className="text-center text-gray-500">Carregando usuários...</p> : (
+            <>
+                {filteredUsers.length > 0 ? (
+                    <div className="space-y-4">
+                        {filteredUsers.map((user) => (
+                            <div key={user.id} className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
+                            <div className="flex items-center">
+                                <img src={user.avatar_url || `https://i.pravatar.cc/150?u=${user.id}`} alt={user.full_name} className="h-16 w-16 rounded-full mr-4 object-cover" />
+                                <div>
+                                <p className="font-bold text-lg text-gray-800">{user.full_name}</p>
+                                <p className="text-gray-600">{user.user_levels?.name || 'N/A'} · {user.job_titles?.name || 'N/A'}</p>
+                                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
+                                    <div className="flex items-center">
+                                    <PhoneIcon className="h-4 w-4 mr-1" />
+                                    <span>{user.phone || 'N/A'}</span>
+                                    </div>
+                                </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center space-x-4">
+                                <button className="text-gray-500 hover:text-blue-600" onClick={() => openEditModal(user)} title="Editar">
+                                <PencilIcon className="h-5 w-5" />
+                                </button>
+                                <button className="text-gray-500 hover:text-red-600" onClick={() => openDeleteModal(user)} title="Excluir">
+                                <TrashIcon className="h-5 w-5" />
+                                </button>
+                            </div>
+                            </div>
+                        ))}
                     </div>
-                    <div className="flex items-center">
-                      <PhoneIcon className="h-4 w-4 mr-1" />
-                      <span>{user.phone}</span>
+                ) : (
+                    <div className="text-center py-16 bg-white rounded-lg shadow-md">
+                        <UsersIcon className="mx-auto h-12 w-12 text-gray-400" />
+                        <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhum usuário encontrado</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                            Clique em "+ Novo Usuário" para adicionar o primeiro.
+                        </p>
+                        <p className="mt-2 text-xs text-gray-400 px-4">
+                            Se você já cadastrou usuários e eles não aparecem, verifique se as políticas de segurança (RLS) da tabela 'users' no Supabase permitem a visualização pública (SELECT).
+                        </p>
                     </div>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <button className="text-gray-500 hover:text-blue-600">
-                  <PencilIcon className="h-5 w-5" />
-                </button>
-                <button className="text-gray-500 hover:text-red-600">
-                  <TrashIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+                )}
+            </>
+        )}
       </div>
 
       <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Adicionar Novo Usuário"
+          isOpen={isModalOpen}
+          onClose={closeModal}
+          title={isEditing ? 'Editar Usuário' : 'Adicionar Novo Usuário'}
+          footer={renderModalFooter()}
       >
-        <form onSubmit={handleAddNewUser}>
+        {error && <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4" role="alert"><p>{error}</p></div>}
+          <form id="user-form" onSubmit={isEditing ? handleUpdateUser : handleAddNewUser}>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
-              <input type="text" name="name" value={newUser.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nível</label>
-              <select name="role" value={newUser.role} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                <option value="">Selecione um nível</option>
-                {availableRoles.map(role => <option key={role} value={role}>{role}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cargo</label>
-              <select name="title" value={newUser.title} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                <option value="">Selecione um cargo</option>
-                {availableTitles.map(title => <option key={title} value={title}>{title}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" name="email" value={newUser.email} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-            </div>
-             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-              <input type="tel" name="phone" value={newUser.phone} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="(XX) XXXXX-XXXX" required maxLength={15} />
-            </div>
+              
+              <div className="flex flex-col items-center space-y-2 mb-4">
+                  <img 
+                      src={avatarPreview || (isEditing ? editingUser?.avatar_url : null) || 'https://via.placeholder.com/96'} 
+                      alt="Avatar Preview" 
+                      className="h-24 w-24 rounded-full object-cover"
+                  />
+                  <label htmlFor="avatar-upload" className="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-500">
+                      Trocar Foto
+                  </label>
+                  <input 
+                      id="avatar-upload" 
+                      type="file" 
+                      className="sr-only" 
+                      accept="image/png, image/jpeg, image/webp" 
+                      onChange={handleAvatarChange}
+                  />
+              </div>
+
+              {isEditing ? (
+                  <>
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                          <input type="text" name="full_name" value={editingUser?.full_name || ''} onChange={handleEditInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
+                      </div>
+                  </>
+              ) : (
+                  <>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                        <input type="email" name="email" value={newUser.email} onChange={handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+                        <input type="password" name="password" value={newUser.password} onChange={handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                        <input type="text" name="full_name" value={newUser.full_name} onChange={handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                    </div>
+                  </>
+              )}
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nível</label>
+                <select name="user_level_id" value={isEditing ? editingUser?.user_level_id : newUser.user_level_id} onChange={isEditing ? handleEditInputChange : handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <option value="">Selecione um nível</option>
+                    {availableLevels.map(level => <option key={level.id} value={level.id}>{level.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cargo</label>
+                <select name="job_title_id" value={isEditing ? editingUser?.job_title_id : newUser.job_title_id} onChange={isEditing ? handleEditInputChange : handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    <option value="">Selecione um cargo</option>
+                    {availableTitles.map(title => <option key={title.id} value={title.id}>{title.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                <input type="tel" name="phone" value={isEditing ? editingUser?.phone : newUser.phone} onChange={isEditing ? handleEditInputChange : handleNewUserInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="(XX) XXXXX-XXXX" maxLength={15} />
+              </div>
           </div>
-          <div className="flex justify-end pt-6 border-t mt-6">
-            <button type="button" onClick={() => setIsModalOpen(false)} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
-              Cancelar
-            </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
-              Salvar
-            </button>
-          </div>
-        </form>
+          </form>
       </Modal>
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Confirmar Exclusão de Perfil"
+        message={
+          <>
+            <p>Tem certeza que deseja excluir o perfil de <strong>"{userToDelete?.full_name}"</strong>?</p>
+            <p className="text-sm text-yellow-700 bg-yellow-100 p-2 rounded-md mt-2">
+              Atenção: Esta ação remove apenas as informações do perfil (nome, cargo, etc.). O usuário ainda poderá fazer login.
+            </p>
+          </>
+        }
+      />
     </>
   );
 };

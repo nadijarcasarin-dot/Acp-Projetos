@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useContext } from 'react';
 import type { Page, NavItem } from '../types';
 import { ChartBarIcon } from './icons/ChartBarIcon';
 import { UserGroupIcon } from './icons/UserGroupIcon';
@@ -14,6 +15,7 @@ import { PresentationChartLineIcon } from './icons/PresentationChartLineIcon';
 import { CogIcon } from './icons/CogIcon';
 import { LogoutIcon } from './icons/LogoutIcon';
 import { BuildingOfficeIcon } from './icons/BuildingOfficeIcon';
+import { AuthContext } from '../contexts/AuthContext';
 
 
 const mainNavItems: NavItem[] = [
@@ -43,9 +45,15 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, isCollapsed }) => {
+  const { userProfile, logout } = useContext(AuthContext);
+
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, page: Page) => {
     e.preventDefault();
-    setActivePage(page);
+    if (page === 'Sair') {
+      logout();
+    } else {
+      setActivePage(page);
+    }
   };
 
   return (
@@ -74,11 +82,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, isCollapse
       </nav>
       <div className="px-4 py-4 border-t border-white/20">
         <div className={`flex items-center mb-4 ${isCollapsed ? 'justify-center' : ''}`}>
-            <img src="https://picsum.photos/id/433/100/100" alt="User Avatar" className="h-10 w-10 rounded-full flex-shrink-0" />
+            <img src={userProfile?.avatar_url || `https://i.pravatar.cc/150?u=${userProfile?.id}`} alt="User Avatar" className="h-10 w-10 rounded-full flex-shrink-0 object-cover" />
             {!isCollapsed && (
               <div className="ml-3">
-                  <p className="text-sm font-medium text-white whitespace-nowrap">Ana Lúcia</p>
-                  <p className="text-xs text-gray-400 whitespace-nowrap">Gerente de Projetos</p>
+                  <p className="text-sm font-medium text-white whitespace-nowrap">{userProfile?.full_name || 'Usuário'}</p>
+                  <p className="text-xs text-gray-400 whitespace-nowrap">{userProfile?.job_titles?.name || 'Cargo'}</p>
               </div>
             )}
         </div>

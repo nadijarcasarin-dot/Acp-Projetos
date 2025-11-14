@@ -1,241 +1,355 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import { ChevronDownIcon } from '../components/icons/ChevronDownIcon';
 import { SparklesIcon } from '../components/icons/SparklesIcon';
 import { CalendarIcon } from '../components/icons/CalendarIcon';
+import { PencilIcon } from '../components/icons/PencilIcon';
+import { TrashIcon } from '../components/icons/TrashIcon';
 import Modal from '../components/Modal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import Notification from '../components/Notification';
+
+interface User {
+  id: string;
+  full_name: string;
+  avatar_url: string;
+}
+
+interface Project {
+  id: number;
+  title: string;
+}
 
 interface Task {
-  project: string;
+  id: number;
   title: string;
   description: string;
-  assignee: { name: string; avatar: string };
-  startDate: string;
-  dueDate: string;
-  endDate: string;
+  project_id: number;
+  assignee_id: string;
+  start_date: string;
+  due_date: string;
+  end_date: string;
   status: string;
-  color: string;
+  projects: Project | null;
+  users: User | null;
 }
 
-const initialTasks: Task[] = [
-    {
-      project: 'Desenvolvimento de Novo Herbicida',
-      title: 'Pesquisa de componentes químicos',
-      description: 'Análise de artigos científicos e patentes.',
-      assignee: { name: 'Carla Dias', avatar: 'https://i.pravatar.cc/150?img=5' },
-      startDate: '2024-06-01',
-      dueDate: '2024-06-15',
-      endDate: '2024-06-20',
-      status: 'Atrasada',
-      color: 'border-red-500'
-    },
-    {
-      project: 'Sistema de Irrigação Inteligente',
-      title: 'Compra dos sensores',
-      description: 'Aquisição de 50 sensores de umidade.',
-      assignee: { name: 'Bruno Costa', avatar: 'https://i.pravatar.cc/150?img=2' },
-      startDate: '2024-06-20',
-      dueDate: '2024-06-30',
-      endDate: '2024-07-05',
-      status: 'Em andamento',
-      color: 'border-blue-500'
-    },
-    {
-      project: 'Auditoria Ambiental Anual',
-      title: 'Coleta de documentos fiscais',
-      description: 'Reunir todas as notas fiscais do período.',
-      assignee: { name: 'Daniel Souza', avatar: 'https://i.pravatar.cc/150?img=10' },
-      startDate: '2024-07-01',
-      dueDate: '2024-07-10',
-      endDate: '2024-07-15',
-      status: 'Concluída',
-      color: 'border-green-500'
-    },
-  ];
-
-const emptyTaskForm = {
-    title: '',
-    description: '',
-    project: '',
-    assignee: '',
-    startDate: '',
-    dueDate: '',
-    endDate: '',
+const emptyTask: Partial<Task> = {
+  title: '',
+  description: '',
+  project_id: undefined,
+  assignee_id: undefined,
+  start_date: '',
+  due_date: '',
+  end_date: '',
+  status: 'Pendente',
 };
 
-// Mock data
-const mockProjects = [
-    'Desenvolvimento de Novo Herbicida',
-    'Sistema de Irrigação Inteligente',
-    'Auditoria Ambiental Anual',
-];
-const mockResponsaveis = [
-    { name: 'Carla Dias', avatar: 'https://i.pravatar.cc/150?img=5' },
-    { name: 'Bruno Costa', avatar: 'https://i.pravatar.cc/150?img=2' },
-    { name: 'Daniel Souza', avatar: 'https://i.pravatar.cc/150?img=10' },
-    { name: 'Alice Silva', avatar: 'https://i.pravatar.cc/150?img=1' },
-    { name: 'Ana Lúcia', avatar: 'https://i.pravatar.cc/150?img=4' },
-];
+const formatDate = (dateString?: string) => {
+  if (!dateString) return 'N/A';
+  return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
 
 const getStatusClasses = (status: string) => {
-    switch(status) {
-        case 'Atrasada': return 'bg-red-100 text-red-800';
-        case 'Em andamento': return 'bg-blue-100 text-blue-800';
-        case 'Concluída': return 'bg-green-100 text-green-800';
-        case 'Pendente': return 'bg-gray-100 text-gray-800';
-        default: return 'bg-gray-100 text-gray-800';
-    }
+  switch(status) {
+      case 'Atrasada': return { border: 'border-red-500', select: 'bg-red-100 text-red-800 focus:ring-red-500' };
+      case 'Em Andamento': return { border: 'border-blue-500', select: 'bg-blue-100 text-blue-800 focus:ring-blue-500' };
+      case 'Concluída': return { border: 'border-green-500', select: 'bg-green-100 text-green-800 focus:ring-green-500' };
+      default: return { border: 'border-gray-500', select: 'bg-gray-100 text-gray-800 focus:ring-gray-500' };
+  }
 }
 
-const FilterSelect: React.FC<{label: string, options: string[]}> = ({label, options}) => (
-    <div className="relative">
-        <label className="text-sm text-gray-500">{label}</label>
-        <select className="appearance-none w-full bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-1">
-            {options.map(opt => <option key={opt}>{opt}</option>)}
-        </select>
-        <ChevronDownIcon className="absolute right-3 top-1/2 mt-2 h-5 w-5 text-gray-400 pointer-events-none" />
-    </div>
-);
-
 const Tarefas: React.FC = () => {
-    const [tasks, setTasks] = useState<Task[]>(initialTasks);
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
+    const [filters, setFilters] = useState({ status: 'Todos', project: 'Todos', assignee: 'Todos' });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    // Modal states
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [newTask, setNewTask] = useState(emptyTaskForm);
+    const [isEditing, setIsEditing] = useState(false);
+    const [currentTask, setCurrentTask] = useState<Partial<Task>>(emptyTask);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setNewTask(prev => ({ ...prev, [name]: value }));
-    };
 
-    const handleAddNewTask = (e: React.FormEvent) => {
-        e.preventDefault();
-        const assigneeData = mockResponsaveis.find(r => r.name === newTask.assignee);
-        if (newTask.title && newTask.project && assigneeData) {
-            const taskToAdd: Task = {
-                ...newTask,
-                assignee: assigneeData,
-                status: 'Pendente',
-                color: 'border-gray-500'
-            };
-            setTasks(prev => [taskToAdd, ...prev]);
-            setNewTask(emptyTaskForm);
-            setIsModalOpen(false);
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { data: tasksData, error: tasksError } = await supabase
+                .from('tasks')
+                .select('*, projects(id, title), users(id, full_name, avatar_url)');
+            if (tasksError) throw tasksError;
+
+            const sanitizedTasks = (tasksData || []).map(task => ({
+              ...task,
+              projects: task.projects || { id: task.project_id, title: 'Projeto Indefinido' },
+              users: task.users || { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
+            }));
+            setTasks(sanitizedTasks as Task[]);
+
+            const { data: projectsData, error: projectsError } = await supabase.from('projects').select('id, title').order('title');
+            if (projectsError) throw projectsError;
+            setProjects(projectsData || []);
+
+            const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name');
+            if (usersError) throw usersError;
+            setUsers(usersData || []);
+        } catch (err: any) {
+            setError(`Falha ao buscar dados: ${err.message}`);
+        } finally {
+            setLoading(false);
         }
     };
 
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleStatusChange = async (taskId: number, newStatus: string) => {
+        const { error } = await supabase
+            .from('tasks')
+            .update({ status: newStatus })
+            .eq('id', taskId);
+
+        if (error) {
+            setNotification({ type: 'error', message: `Erro ao atualizar status: ${error.message}` });
+        } else {
+            setNotification({ type: 'success', message: 'Status atualizado com sucesso!' });
+            setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } : task));
+        }
+    };
+
+    const openModalForNew = () => {
+        setCurrentTask(emptyTask);
+        setIsEditing(false);
+        setIsModalOpen(true);
+    };
+
+    const openModalForEdit = (task: Task) => {
+        setCurrentTask(task);
+        setIsEditing(true);
+        setIsModalOpen(true);
+    };
+    
+    const openDeleteModal = (task: Task) => {
+        setTaskToDelete(task);
+        setIsDeleteModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setError(null);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError(null);
+        const taskData = {
+            title: currentTask.title,
+            description: currentTask.description,
+            project_id: currentTask.project_id,
+            assignee_id: currentTask.assignee_id,
+            start_date: currentTask.start_date,
+            due_date: currentTask.due_date,
+            end_date: currentTask.end_date,
+            status: currentTask.status || 'Pendente',
+        };
+
+        const { error } = isEditing
+            ? await supabase.from('tasks').update(taskData).eq('id', currentTask.id)
+            : await supabase.from('tasks').insert([taskData]);
+        
+        if (error) {
+            setError(error.message);
+        } else {
+            closeModal();
+            await fetchData();
+            setNotification({ type: 'success', message: `Tarefa ${isEditing ? 'atualizada' : 'criada'} com sucesso!` });
+        }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!taskToDelete) return;
+        const { error } = await supabase.from('tasks').delete().eq('id', taskToDelete.id);
+        
+        setIsDeleteModalOpen(false);
+        if (error) {
+            setNotification({ type: 'error', message: `Erro ao excluir: ${error.message}` });
+        } else {
+            setNotification({ type: 'success', message: 'Tarefa excluída com sucesso!' });
+            setTasks(prev => prev.filter(t => t.id !== taskToDelete.id));
+        }
+        setTaskToDelete(null);
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setCurrentTask(prev => ({ ...prev, [name]: value }));
+    };
+
+    const filteredTasks = tasks.filter(task => {
+        if (!task) return false;
+        const statusMatch = filters.status === 'Todos' || task.status === filters.status;
+        const projectMatch = filters.project === 'Todos' || (task.project_id != null && task.project_id.toString() === filters.project);
+        const assigneeMatch = filters.assignee === 'Todos' || (task.assignee_id != null && task.assignee_id === filters.assignee);
+        return statusMatch && projectMatch && assigneeMatch;
+    });
+
     return (
         <>
+            {notification && <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />}
             <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-3xl font-bold text-gray-800">Gerenciador de Tarefas</h1>
                     <button 
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={openModalForNew}
                         className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200">
                         + Nova Tarefa
                     </button>
                 </div>
                 
                 <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <FilterSelect label="Status" options={['Todos']} />
-                        <FilterSelect label="Projeto" options={['Todos']} />
-                        <FilterSelect label="Responsável" options={['Todos']} />
-                        <FilterSelect label="Ordenar por" options={['Data de Vencimento']} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="relative">
+                            <label className="text-sm text-gray-500">Status</label>
+                            <select name="status" value={filters.status} onChange={handleFilterChange} className="appearance-none w-full bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-1">
+                                <option value="Todos">Todos</option>
+                                <option value="Pendente">Pendente</option>
+                                <option value="Em Andamento">Em Andamento</option>
+                                <option value="Concluída">Concluída</option>
+                                <option value="Atrasada">Atrasada</option>
+                            </select>
+                            <ChevronDownIcon className="absolute right-3 top-1/2 mt-2 h-5 w-5 text-gray-400 pointer-events-none" />
+                        </div>
+                        <div className="relative">
+                            <label className="text-sm text-gray-500">Projeto</label>
+                            <select name="project" value={filters.project} onChange={handleFilterChange} className="appearance-none w-full bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-1">
+                                <option value="Todos">Todos</option>
+                                {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                            </select>
+                             <ChevronDownIcon className="absolute right-3 top-1/2 mt-2 h-5 w-5 text-gray-400 pointer-events-none" />
+                        </div>
+                        <div className="relative">
+                            <label className="text-sm text-gray-500">Responsável</label>
+                            <select name="assignee" value={filters.assignee} onChange={handleFilterChange} className="appearance-none w-full bg-white border border-gray-300 rounded-lg py-2 pl-4 pr-10 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mt-1">
+                                <option value="Todos">Todos</option>
+                                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                            </select>
+                             <ChevronDownIcon className="absolute right-3 top-1/2 mt-2 h-5 w-5 text-gray-400 pointer-events-none" />
+                        </div>
                     </div>
                 </div>
 
-                <div className="space-y-4">
-                    {tasks.map((task, index) => (
-                         <div key={`${task.title}-${index}`} className={`bg-white rounded-lg shadow-md p-4 border-l-4 ${task.color}`}>
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <p className="text-sm text-gray-500">{task.project}</p>
-                                    <p className="font-bold text-lg text-gray-800">{task.title}</p>
-                                </div>
-                                <div className="flex items-center flex-shrink-0">
-                                    <div className="text-right">
-                                        <p className="font-semibold text-sm text-gray-800">{task.assignee.name}</p>
+                {loading ? <p className="text-center text-gray-500">Carregando tarefas...</p> : (
+                    <div className="space-y-4">
+                        {filteredTasks.map((task) => {
+                            const { border, select } = getStatusClasses(task.status);
+                            return (
+                                <div key={task.id} className={`bg-white rounded-lg shadow-md p-4 border-l-[5px] ${border}`}>
+                                    {/* Top section: Project & Assignee */}
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-sm text-gray-500">{task.projects?.title || 'Projeto não encontrado'}</p>
+                                        <div className="flex items-center">
+                                            <span className="text-sm font-semibold text-gray-700 mr-2">{task.users?.full_name || 'N/A'}</span>
+                                            <img src={task.users?.avatar_url || `https://i.pravatar.cc/150?u=${task.assignee_id}`} alt={task.users?.full_name || 'Avatar'} className="h-8 w-8 rounded-full object-cover" />
+                                        </div>
                                     </div>
-                                    <img src={task.assignee.avatar} alt={task.assignee.name} className="h-10 w-10 rounded-full ml-3" />
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-end mt-2">
-                                <p className="text-sm text-gray-600 max-w-md">{task.description}</p>
-                                <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
-                                    <div className="flex items-center text-xs text-gray-500 space-x-2">
-                                        <CalendarIcon className="h-4 w-4"/>
-                                        <span>Início: {new Date(task.startDate).toLocaleDateString()}</span>
-                                        <span className="font-semibold">Venc.: {new Date(task.dueDate).toLocaleDateString()}</span>
-                                        <span>Término: {new Date(task.endDate).toLocaleDateString()}</span>
+                
+                                    {/* Middle section: Title & Description */}
+                                    <div className="my-3">
+                                        <p className="font-bold text-lg text-gray-800">{task.title}</p>
+                                        <p className="text-sm text-gray-600 mt-1">{task.description}</p>
                                     </div>
-                                    <div className="relative">
-                                        <select defaultValue={task.status} className={`appearance-none rounded-full py-1 pl-3 pr-8 text-xs font-semibold focus:outline-none ${getStatusClasses(task.status)}`}>
-                                            <option>Pendente</option>
-                                            <option>Em andamento</option>
-                                            <option>Concluída</option>
-                                            <option>Atrasada</option>
-                                        </select>
-                                        <ChevronDownIcon className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" />
+                
+                                    {/* Bottom section: Date, Status, Actions */}
+                                    <div className="flex justify-end items-center space-x-4 pt-3 mt-2 border-t border-gray-100">
+                                        <div className="flex items-center text-sm text-gray-500">
+                                            <CalendarIcon className="h-4 w-4 mr-1.5"/>
+                                            <span>Venc.: {formatDate(task.due_date)}</span>
+                                        </div>
+                                        <div className="relative">
+                                            <select
+                                                value={task.status}
+                                                onChange={(e) => handleStatusChange(task.id, e.target.value)}
+                                                className={`appearance-none rounded-md py-1 pl-3 pr-8 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-offset-1 ${select}`}
+                                            >
+                                                <option value="Pendente">Pendente</option>
+                                                <option value="Em Andamento">Em Andamento</option>
+                                                <option value="Concluída">Concluída</option>
+                                                <option value="Atrasada">Atrasada</option>
+                                            </select>
+                                            <ChevronDownIcon className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" />
+                                        </div>
+                                        <button onClick={() => openModalForEdit(task)} className="text-gray-400 hover:text-blue-600" title="Editar Tarefa"><PencilIcon className="h-5 w-5"/></button>
+                                        <button onClick={() => openDeleteModal(task)} className="text-gray-400 hover:text-red-600" title="Excluir Tarefa"><TrashIcon className="h-5 w-5"/></button>
                                     </div>
-                                    <button className="bg-indigo-600 text-white font-semibold px-3 py-1 rounded-lg hover:bg-indigo-700 text-sm flex items-center whitespace-nowrap">
-                                        <SparklesIcon className="h-4 w-4 mr-1"/>
-                                        Gerar Análise
-                                    </button>
                                 </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
+                            )
+                        })}
+                    </div>
+                )}
             </div>
+            
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                title="Adicionar Nova Tarefa"
+                onClose={closeModal}
+                title={isEditing ? 'Editar Tarefa' : 'Adicionar Nova Tarefa'}
                 size="2xl"
             >
-                <form onSubmit={handleAddNewTask}>
+                <form onSubmit={handleSubmit}>
+                    {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4 text-sm" role="alert">{error}</div>}
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Título da Tarefa</label>
-                            <input type="text" name="title" value={newTask.title} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
+                            <input type="text" name="title" value={currentTask.title || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                            <textarea name="description" value={newTask.description} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            <textarea name="description" value={currentTask.description || ''} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Projeto</label>
-                                <select name="project" value={newTask.project} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                <select name="project_id" value={currentTask.project_id || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                                     <option value="">Selecione um projeto</option>
-                                    {mockProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                                    {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Responsável</label>
-                                <select name="assignee" value={newTask.assignee} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                <select name="assignee_id" value={currentTask.assignee_id || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                                     <option value="">Selecione um responsável</option>
-                                    {mockResponsaveis.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
+                                    {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                                 </select>
                             </div>
                         </div>
                         <div className="grid grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Data de Início</label>
-                                <input type="date" name="startDate" value={newTask.startDate} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                                <input type="date" name="start_date" value={currentTask.start_date || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Data de Vencimento (Crítica)</label>
-                                <input type="date" name="dueDate" value={newTask.dueDate} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                                <input type="date" name="due_date" value={currentTask.due_date || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Data de Término</label>
-                                <input type="date" name="endDate" value={newTask.endDate} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                                <input type="date" name="end_date" value={currentTask.end_date || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                             </div>
                         </div>
                     </div>
                     <div className="flex justify-end pt-6 border-t mt-6">
-                        <button type="button" onClick={() => setIsModalOpen(false)} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                        <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
                         Cancelar
                         </button>
                         <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
@@ -244,6 +358,13 @@ const Tarefas: React.FC = () => {
                     </div>
                 </form>
             </Modal>
+            <ConfirmationModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={handleConfirmDelete}
+                title="Confirmar Exclusão de Tarefa"
+                message={<>Tem certeza que deseja excluir a tarefa <strong>"{taskToDelete?.title}"</strong>?</>}
+            />
         </>
     );
 }
