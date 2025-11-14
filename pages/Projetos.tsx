@@ -85,67 +85,71 @@ const Projetos: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: projectsData, error: projectsError } = await supabase
-        .from('projects')
-        .select('*, companies(id, name), users:manager_id(id, full_name)');
-
-      if (projectsError) throw projectsError;
-      
-      const { data: tasksData, error: tasksError } = await supabase
-        .from('tasks')
-        .select('project_id, status');
-
-      if (tasksError) throw tasksError;
-
-      const projectsWithProgress = (projectsData || []).map(project => {
-        const projectTasks = (tasksData || []).filter(task => task.project_id === project.id);
-        const completedTasks = projectTasks.filter(task => task.status === 'Concluída').length;
-        const totalTasks = projectTasks.length;
-        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-        
-        return {
-            ...project,
-            progress: progress,
-        };
-      });
-
-      const sanitizedProjects = projectsWithProgress.map(project => {
-        const companyRelation = project.companies;
-        const userRelation = project.users;
-        return {
-          ...project,
-          companies: (companyRelation && typeof companyRelation === 'object' && !Array.isArray(companyRelation)) 
-            ? companyRelation 
-            : { id: project.company_id, name: 'Empresa Indefinida' },
-          users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
-            ? userRelation
-            : { id: project.manager_id, full_name: 'Responsável Indefinido' },
-        }
-      });
-      setProjects(sanitizedProjects as Project[]);
-
-
-      const { data: companiesData, error: companiesError } = await supabase.from('companies').select('id, name').order('name');
-      if (companiesError) throw companiesError;
-      setCompanies(companiesData || []);
-
-      const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name');
-      if (usersError) throw usersError;
-      setUsers(usersData || []);
-
-    } catch (err: any) {
-      setError(`Falha ao buscar dados: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [projectsRes, tasksRes, companiesRes, usersRes] = await Promise.all([
+          supabase.from('projects').select('*, companies(id, name), users:manager_id(id, full_name)').abortSignal(signal),
+          supabase.from('tasks').select('project_id, status').abortSignal(signal),
+          supabase.from('companies').select('id, name').order('name').abortSignal(signal),
+          supabase.from('users').select('id, full_name').order('full_name').abortSignal(signal)
+        ]);
+        
+        if (signal.aborted) return;
+
+        const { data: projectsData, error: projectsError } = projectsRes;
+        if (projectsError) throw projectsError;
+        
+        const { data: tasksData, error: tasksError } = tasksRes;
+        if (tasksError) throw tasksError;
+
+        const { data: companiesData, error: companiesError } = companiesRes;
+        if (companiesError) throw companiesError;
+        
+        const { data: usersData, error: usersError } = usersRes;
+        if (usersError) throw usersError;
+
+        const projectsWithProgress = (projectsData || []).map(project => {
+          const projectTasks = (tasksData || []).filter(task => task.project_id === project.id);
+          const completedTasks = projectTasks.filter(task => task.status === 'Concluída').length;
+          const totalTasks = projectTasks.length;
+          const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+          return { ...project, progress };
+        });
+
+        const sanitizedProjects = projectsWithProgress.map(project => {
+          return {
+            ...project,
+            companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
+            users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
+          };
+        });
+        
+        setProjects(sanitizedProjects as Project[]);
+        setCompanies(companiesData || []);
+        setUsers(usersData || []);
+
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+            setError(`Falha ao buscar dados: ${err.message}`);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchData();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   const openModalForNew = () => {
@@ -349,46 +353,51 @@ const Projetos: React.FC = () => {
       <div>
         <h2 className="text-2xl font-bold text-gray-800 mb-4">Projetos Ativos</h2>
          {loading ? <p className="text-center text-gray-500">Carregando projetos...</p> : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="space-y-4">
                 {filteredProjects.map(project => (
-                    <div key={project.id} className="bg-white p-6 rounded-lg shadow-md flex flex-col">
-                        <div className="flex justify-between items-start mb-2">
-                            <div className="flex-1">
-                                <h3 className="text-lg font-bold text-gray-800 cursor-pointer hover:text-blue-600">{project.title}</h3>
+                    <div key={project.id} className="bg-white p-6 rounded-lg shadow-md flex flex-col sm:flex-row justify-between items-start gap-x-6 gap-y-4">
+                        {/* Left Side: Main Info */}
+                        <div className="flex-1">
+                            <div className="mb-4">
+                                <h3 className="text-xl font-bold text-gray-800 cursor-pointer hover:text-blue-600">{project.title}</h3>
                                 <p className="text-sm text-gray-500">Empresa: {project.companies?.name || 'N/A'}</p>
-                                 <div className="flex items-center text-xs text-gray-400 mt-1">
+                                <div className="flex items-center text-xs text-gray-400 mt-1">
                                     <CalendarIcon className="h-4 w-4 mr-1"/>
                                     <span>{formatDate(project.start_date)} - {formatDate(project.end_date)}</span>
                                 </div>
                             </div>
-                            <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
-                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusClass(project.status)}`}>{project.status}</span>
-                               <button onClick={() => openModalForEdit(project)} className="text-gray-400 hover:text-blue-600" title="Editar projeto">
-                                <PencilIcon className="h-5 w-5" />
-                              </button>
-                               <button onClick={() => openDeleteModal(project)} className="text-gray-400 hover:text-red-600" title="Excluir projeto">
-                                <TrashIcon className="h-5 w-5" />
-                              </button>
-                            </div>
+                            <p className="text-sm text-gray-600">{project.description}</p>
                         </div>
-                        <p className="text-sm text-gray-600 flex-grow mb-4">{project.description}</p>
-                        <div>
-                            <div className="flex justify-between items-center mb-1">
-                                <span className="text-sm text-gray-500">Progresso</span>
-                                <span className="text-sm font-semibold text-gray-800">{project.progress}%</span>
+
+                        {/* Right Side: Status, Progress, Actions */}
+                        <div className="w-full sm:w-64 flex-shrink-0">
+                            <div className="flex justify-between items-center mb-3">
+                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusClass(project.status)}`}>{project.status}</span>
+                                <div className="flex items-center space-x-2">
+                                    <button onClick={() => openModalForEdit(project)} className="text-gray-400 hover:text-blue-600" title="Editar projeto">
+                                        <PencilIcon className="h-5 w-5" />
+                                    </button>
+                                    <button onClick={() => openDeleteModal(project)} className="text-gray-400 hover:text-red-600" title="Excluir projeto">
+                                        <TrashIcon className="h-5 w-5" />
+                                    </button>
+                                </div>
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div className={`${getProgressClass(project.status)} h-2 rounded-full`} style={{width: `${project.progress}%`}}></div>
-                            </div>
-                        </div>
-                        <div className="border-t mt-4 pt-4 flex justify-between items-center">
                             <div>
-                               <p className="text-sm text-gray-500">Responsável: <strong>{project.users?.full_name || 'N/A'}</strong></p>
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm text-gray-500">Progresso</span>
+                                    <span className="text-sm font-semibold text-gray-800">{project.progress}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div className={`${getProgressClass(project.status)} h-2 rounded-full`} style={{width: `${project.progress}%`}}></div>
+                                </div>
                             </div>
-                            <button className="flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800">
-                                <SparklesIcon className="h-4 w-4 mr-1"/>
-                                Resumo com IA
-                            </button>
+                            <div className="mt-4 pt-4 border-t text-right">
+                                <p className="text-sm text-gray-500 mb-2">Responsável: <strong>{project.users?.full_name || 'N/A'}</strong></p>
+                                <button className="flex items-center text-sm font-semibold text-blue-600 hover:text-blue-800 ml-auto">
+                                    <SparklesIcon className="h-4 w-4 mr-1"/>
+                                    Resumo com IA
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ))}

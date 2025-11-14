@@ -58,50 +58,54 @@ const Relatorios: React.FC = () => {
   const [tasksByUserData, setTasksByUserData] = useState<any[]>([]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
     const fetchInitialData = async () => {
       setLoading(true);
       setError(null);
       try {
-        const { data: projectsData, error: projectsError } = await supabase
-            .from('projects')
-            .select('id, title, status, users:manager_id(full_name)');
+        const [projectsRes, tasksRes] = await Promise.all([
+          supabase.from('projects').select('id, title, status, users:manager_id(full_name)').abortSignal(signal),
+          supabase.from('tasks').select('status, project_id, users:assignee_id(full_name)').abortSignal(signal)
+        ]);
+
+        if (signal.aborted) return;
+
+        const { data: projectsData, error: projectsError } = projectsRes;
         if (projectsError) throw projectsError;
         
-        const sanitizedProjects = (projectsData || []).map(p => {
-          const userRelation = p.users;
-          return {
-            ...p,
-            users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
-              ? userRelation
-              : { full_name: 'Responsável Indefinido' }
-          }
-        });
+        const { data: tasksData, error: tasksError } = tasksRes;
+        if (tasksError) throw tasksError;
+        
+        const sanitizedProjects = (projectsData || []).map(p => ({
+          ...p,
+          users: p.users || { full_name: 'Responsável Indefinido' }
+        }));
         setAllProjects(sanitizedProjects);
         setProjectList(sanitizedProjects.map(p => ({ id: p.id, title: p.title })));
 
-        const { data: tasksData, error: tasksError } = await supabase
-            .from('tasks')
-            .select('status, project_id, users:assignee_id(full_name)');
-        if (tasksError) throw tasksError;
-        
-        const sanitizedTasks = (tasksData || []).map(t => {
-          const userRelation = t.users;
-          return {
-            ...t,
-            users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
-              ? userRelation
-              : { full_name: 'Responsável Indefinido' }
-          }
-        });
+        const sanitizedTasks = (tasksData || []).map(t => ({
+          ...t,
+          users: t.users || { full_name: 'Responsável Indefinido' }
+        }));
         setAllTasks(sanitizedTasks);
 
       } catch (err: any) {
-        setError(`Falha ao carregar dados dos relatórios: ${err.message}`);
+        if (err.name !== 'AbortError') {
+          setError(`Falha ao carregar dados dos relatórios: ${err.message}`);
+        }
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+            setLoading(false);
+        }
       }
     };
     fetchInitialData();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   useEffect(() => {

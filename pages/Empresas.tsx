@@ -29,25 +29,40 @@ const Empresas: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchCompanies = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('name', { ascending: true });
-      if (error) throw error;
-      setCompanies(data || []);
-    } catch (error: any) {
-      setError(`Falha ao buscar dados: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchCompanies = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await supabase
+          .from('companies')
+          .select('*')
+          .order('name', { ascending: true })
+          .abortSignal(signal);
+        
+        if (error) throw error;
+        if (!signal.aborted) {
+            setCompanies(data || []);
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+            setError(`Falha ao buscar dados: ${error.message}`);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchCompanies();
+    
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   const openModalForNew = () => {

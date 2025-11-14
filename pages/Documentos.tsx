@@ -59,40 +59,55 @@ const Documentos: React.FC = () => {
 
   const [selectedProject, setSelectedProject] = useState('Todos');
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: docData, error: docError } = await supabase
-        .from('documents')
-        .select('*, projects(id, title)')
-        .order('created_at', { ascending: false });
-      if (docError) throw docError;
-      
-      const sanitizedDocs = (docData || []).map(doc => {
-        const projectRelation = doc.projects;
-        return {
-          ...doc,
-          projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
-            ? projectRelation
-            : { id: doc.project_id, title: 'Projeto Indefinido' }
-        }
-      });
-      setDocuments(sanitizedDocs as Document[]);
-
-      const { data: projData, error: projError } = await supabase.from('projects').select('id, title').order('title');
-      if (projError) throw projError;
-      setProjects(projData || []);
-
-    } catch (err: any) {
-      setError(`Falha ao carregar dados: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [docRes, projRes] = await Promise.all([
+          supabase.from('documents').select('*, projects(id, title)').order('created_at', { ascending: false }).abortSignal(signal),
+          supabase.from('projects').select('id, title').order('title').abortSignal(signal)
+        ]);
+
+        if (signal.aborted) return;
+        
+        const { data: docData, error: docError } = docRes;
+        if (docError) throw docError;
+        
+        const { data: projData, error: projError } = projRes;
+        if (projError) throw projError;
+        
+        const sanitizedDocs = (docData || []).map(doc => {
+          const projectRelation = doc.projects;
+          return {
+            ...doc,
+            projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+              ? projectRelation
+              : { id: doc.project_id, title: 'Projeto Indefinido' }
+          }
+        });
+        setDocuments(sanitizedDocs as Document[]);
+        setProjects(projData || []);
+
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+            setError(`Falha ao carregar dados: ${err.message}`);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchData();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {

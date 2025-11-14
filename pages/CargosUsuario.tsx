@@ -26,27 +26,41 @@ const CargosUsuario: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchRoles = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('job_titles')
-        .select('*')
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setRoles(data || []);
-    } catch (error: any) {
-      setError(`Falha ao buscar dados: ${error.message}`);
-      console.error("Error fetching job titles:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchRoles = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await supabase
+          .from('job_titles')
+          .select('*')
+          .order('name', { ascending: true })
+          .abortSignal(signal);
+
+        if (error) throw error;
+        if (!signal.aborted) {
+            setRoles(data || []);
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+            setError(`Falha ao buscar dados: ${error.message}`);
+            console.error("Error fetching job titles:", error);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchRoles();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   const openModalForNew = () => {

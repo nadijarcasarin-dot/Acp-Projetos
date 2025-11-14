@@ -37,35 +37,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, sessionState: Session | null) => {
-        try {
-          setSession(sessionState);
-          if (sessionState?.user) {
-            const profile = await fetchUserProfile(sessionState.user);
-            setUserProfile(profile);
-          } else {
-            setUserProfile(null);
-          }
-        } catch (error) {
-          console.error("Failed to process auth state change, treating as logged out.", error);
-          setSession(null);
-          setUserProfile(null);
-        } finally {
-          // This is critical: ensures loading is always set to false,
-          // preventing the app from getting stuck on the loading screen
-          // even if there's an error reading a corrupted session.
-          setLoading(false);
-        }
-      }
-    );
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-  
   const fetchUserProfile = async (user: User): Promise<UserProfile | null> => {
       try {
           const { data, error } = await supabase
@@ -80,6 +51,61 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return null;
       }
   };
+
+  useEffect(() => {
+    // Proactively fetch session on mount to resolve loading state.
+    const getInitialSession = async () => {
+        try {
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            setSession(currentSession);
+            if (currentSession?.user) {
+                const profile = await fetchUserProfile(currentSession.user);
+                setUserProfile(profile);
+            } else {
+                setUserProfile(null);
+            }
+        } catch (error) {
+            console.error("Error fetching initial session:", error);
+            setUserProfile(null);
+            setSession(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    getInitialSession();
+
+    // Listen for auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (_event: AuthChangeEvent, sessionState: Session | null) => {
+        setSession(sessionState);
+        if (sessionState?.user) {
+          const profile = await fetchUserProfile(sessionState.user);
+          setUserProfile(profile);
+        } else {
+          setUserProfile(null);
+        }
+      }
+    );
+
+    // Proactive session refresh interval
+    // In some serverless environments (like Vercel), Supabase's default background
+    // token refresh can be unreliable, leading to the session expiring and API calls hanging.
+    // This timer ensures the session token is refreshed well before it expires, preventing freezes.
+    const sessionRefreshInterval = setInterval(async () => {
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+        if (error) {
+            console.error('Error proactively refreshing session:', error.message);
+        }
+        // If the session becomes null (e.g., due to an invalid refresh token),
+        // the onAuthStateChange listener will automatically handle the logout flow.
+    }, 1 * 60 * 1000); // Refresh every 1 minute.
+
+    return () => {
+      authListener.subscription.unsubscribe();
+      clearInterval(sessionRefreshInterval);
+    };
+  }, []);
 
   const login = async (email: string, pass: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password: pass });

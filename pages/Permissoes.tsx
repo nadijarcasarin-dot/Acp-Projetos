@@ -58,12 +58,12 @@ const Permissoes: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-    const syncAndFetchPermissions = useCallback(async () => {
+    const syncAndFetchPermissions = useCallback(async (signal: AbortSignal) => {
         const allPermissionNames = Object.entries(permissionGroups).flatMap(([group, perms]) => 
             perms.map(p => `${group}.${p}`)
         );
         
-        const { data: existingPermissions, error: fetchError } = await supabase.from('permissions').select('name');
+        const { data: existingPermissions, error: fetchError } = await supabase.from('permissions').select('name').abortSignal(signal);
         if (fetchError) throw new Error(`Falha ao buscar permissões existentes: ${fetchError.message}`);
 
         const existingNames = new Set(existingPermissions.map(p => p.name));
@@ -76,49 +76,79 @@ const Permissoes: React.FC = () => {
             if (insertError) throw new Error(`Falha ao inserir novas permissões: ${insertError.message}`);
         }
 
-        const { data: allPerms, error: fetchAllError } = await supabase.from('permissions').select('id, name');
+        const { data: allPerms, error: fetchAllError } = await supabase.from('permissions').select('id, name').abortSignal(signal);
         if (fetchAllError) throw new Error(`Falha ao buscar todas as permissões: ${fetchAllError.message}`);
         
-        setAllPermissions(allPerms || []);
+        if (!signal.aborted) {
+            setAllPermissions(allPerms || []);
+        }
     }, []);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            await syncAndFetchPermissions();
-            const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name');
-            if (usersError) throw usersError;
-            setUsers(usersData || []);
-        } catch (err: any) {
-            setNotification({ type: 'error', message: err.message });
-        } finally {
-            setLoading(false);
-        }
+    useEffect(() => {
+        const controller = new AbortController();
+        const signal = controller.signal;
+
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                await syncAndFetchPermissions(signal);
+                if (signal.aborted) return;
+                
+                const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name').abortSignal(signal);
+                if (usersError) throw usersError;
+
+                if (!signal.aborted) {
+                    setUsers(usersData || []);
+                }
+            } catch (err: any) {
+                if (err.name !== 'AbortError') {
+                    setNotification({ type: 'error', message: err.message });
+                }
+            } finally {
+                if (!signal.aborted) {
+                    setLoading(false);
+                }
+            }
+        };
+        fetchData();
+
+        return () => {
+            controller.abort();
+        };
     }, [syncAndFetchPermissions]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        const controller = new AbortController();
+        const signal = controller.signal;
 
-    useEffect(() => {
         const fetchUserPermissions = async () => {
             if (!selectedUserId) {
                 setCurrentUserPermissionIds(new Set());
                 return;
             }
-            const { data, error } = await supabase
-                .from('user_permissions')
-                .select('permission_id')
-                .eq('user_id', selectedUserId);
+            try {
+                const { data, error } = await supabase
+                    .from('user_permissions')
+                    .select('permission_id')
+                    .eq('user_id', selectedUserId)
+                    .abortSignal(signal);
 
-            if (error) {
-                setNotification({ type: 'error', message: `Erro ao buscar permissões do usuário: ${error.message}` });
-                setCurrentUserPermissionIds(new Set());
-            } else {
-                setCurrentUserPermissionIds(new Set(data.map(p => p.permission_id)));
+                if (error) throw error;
+                if (!signal.aborted) {
+                    setCurrentUserPermissionIds(new Set(data.map(p => p.permission_id)));
+                }
+            } catch (error: any) {
+                 if (error.name !== 'AbortError') {
+                    setNotification({ type: 'error', message: `Erro ao buscar permissões do usuário: ${error.message}` });
+                    setCurrentUserPermissionIds(new Set());
+                 }
             }
         };
         fetchUserPermissions();
+        
+        return () => {
+            controller.abort();
+        };
     }, [selectedUserId]);
 
     const handlePermissionChange = (permissionId: number, isChecked: boolean) => {

@@ -60,48 +60,65 @@ const Usuarios: React.FC = () => {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('*, user_levels(name), job_titles(name)');
-      if (usersError) throw usersError;
-
-      const sanitizedUsers = (usersData || []).map(user => {
-        const levelRelation = user.user_levels;
-        const titleRelation = user.job_titles;
-        return {
-          ...user,
-          user_levels: (levelRelation && typeof levelRelation === 'object' && !Array.isArray(levelRelation))
-            ? levelRelation
-            : { name: 'Nível Indefinido' },
-          job_titles: (titleRelation && typeof titleRelation === 'object' && !Array.isArray(titleRelation))
-            ? titleRelation
-            : { name: 'Cargo Indefinido' },
-        };
-      });
-      setUsers(sanitizedUsers as UserProfile[]);
-
-      const { data: levelsData, error: levelsError } = await supabase.from('user_levels').select('*');
-      if (levelsError) throw levelsError;
-      setAvailableLevels(levelsData || []);
-      
-      const { data: titlesData, error: titlesError } = await supabase.from('job_titles').select('*');
-      if (titlesError) throw titlesError;
-      setAvailableTitles(titlesData || []);
-
-    } catch (err: any) {
-      setError(`Falha ao buscar dados: ${err.message}`);
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [usersRes, levelsRes, titlesRes] = await Promise.all([
+          supabase.from('users').select('*, user_levels(name), job_titles(name)').abortSignal(signal),
+          supabase.from('user_levels').select('*').abortSignal(signal),
+          supabase.from('job_titles').select('*').abortSignal(signal),
+        ]);
+
+        if (signal.aborted) return;
+
+        const { data: usersData, error: usersError } = usersRes;
+        if (usersError) throw usersError;
+
+        const { data: levelsData, error: levelsError } = levelsRes;
+        if (levelsError) throw levelsError;
+
+        const { data: titlesData, error: titlesError } = titlesRes;
+        if (titlesError) throw titlesError;
+
+        const sanitizedUsers = (usersData || []).map(user => {
+          const levelRelation = user.user_levels;
+          const titleRelation = user.job_titles;
+          return {
+            ...user,
+            user_levels: (levelRelation && typeof levelRelation === 'object' && !Array.isArray(levelRelation))
+              ? levelRelation
+              : { name: 'Nível Indefinido' },
+            job_titles: (titleRelation && typeof titleRelation === 'object' && !Array.isArray(titleRelation))
+              ? titleRelation
+              : { name: 'Cargo Indefinido' },
+          };
+        });
+        setUsers(sanitizedUsers as UserProfile[]);
+        setAvailableLevels(levelsData || []);
+        setAvailableTitles(titlesData || []);
+
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+            setError(`Falha ao buscar dados: ${err.message}`);
+            console.error(err);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchData();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
   
   const openEditModal = (user: UserProfile) => {

@@ -15,20 +15,30 @@ const Dashboard: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        const controller = new AbortController();
+        const signal = controller.signal;
+
         const fetchData = async () => {
             setLoading(true);
             setError(null);
             try {
-                // Fetch projects
-                const { data: projects, error: projectsError } = await supabase
-                    .from('projects')
-                    .select('status');
+                const [projectsRes, tasksRes] = await Promise.all([
+                    supabase.from('projects').select('status').abortSignal(signal),
+                    supabase.from('tasks').select('status, users(full_name)').abortSignal(signal)
+                ]);
+
+                if (signal.aborted) return;
+
+                const { data: projects, error: projectsError } = projectsRes;
                 if (projectsError) throw projectsError;
+
+                const { data: tasks, error: tasksError } = tasksRes;
+                if (tasksError) throw tasksError;
 
                 // Process project status data
                 const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
                 (projects || []).forEach(p => {
-                    if (p && p.status) { // More robust check
+                    if (p && p.status) {
                         if (p.status === 'Em andamento') {
                             projectCounts['Em Andamento']++;
                         } else if (projectCounts.hasOwnProperty(p.status)) {
@@ -38,18 +48,10 @@ const Dashboard: React.FC = () => {
                 });
                 setProjectStatusData(CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] })));
 
-
-                // Fetch tasks with assignee names
-                const { data: tasks, error: tasksError } = await supabase
-                    .from('tasks')
-                    .select('status, users(full_name)');
-                if (tasksError) throw tasksError;
-                
                 // Process task status data
                 const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
                 (tasks || []).forEach(t => {
-                    if (t && t.status) { // More robust check
-                        // Normalize statuses
+                    if (t && t.status) {
                         if (t.status === 'Em Andamento') taskCounts['Em Andamento']++;
                         else if (t.status === 'Atrasada') taskCounts['Atrasado']++;
                         else if (t.status === 'Concluída') taskCounts['Concluído']++;
@@ -62,7 +64,6 @@ const Dashboard: React.FC = () => {
                 
                 // Process team workload data
                 const workloadCounts = (tasks || []).reduce((acc: Record<string, number>, task: any) => {
-                    // Definitive data shield: Ensures 'users' is a valid object and 'full_name' is a string.
                     const userRelation = task?.users;
                     const isUserObject = userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation);
                     const userName = isUserObject ? (userRelation as { full_name: string }).full_name : null;
@@ -80,15 +81,23 @@ const Dashboard: React.FC = () => {
                 setTeamWorkloadData(processedWorkloadData);
 
             } catch (err: unknown) {
-                const message = err instanceof Error ? err.message : String(err);
-                setError(`Falha ao carregar dados do dashboard: ${message}`);
-                console.error(err);
+                if (err instanceof Error && err.name !== 'AbortError') {
+                    const message = err.message || String(err);
+                    setError(`Falha ao carregar dados do dashboard: ${message}`);
+                    console.error(err);
+                }
             } finally {
-                setLoading(false);
+                if (!signal.aborted) {
+                    setLoading(false);
+                }
             }
         };
 
         fetchData();
+        
+        return () => {
+            controller.abort();
+        };
     }, []);
     
     if (loading) {

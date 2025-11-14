@@ -76,46 +76,57 @@ const Tarefas: React.FC = () => {
     const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
 
-    const fetchData = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const { data: tasksData, error: tasksError } = await supabase
-                .from('tasks')
-                .select('*, projects(id, title), users(id, full_name, avatar_url)');
-            if (tasksError) throw tasksError;
-
-            const sanitizedTasks = (tasksData || []).map(task => {
-                const projectRelation = task.projects;
-                const userRelation = task.users;
-                return {
-                    ...task,
-                    projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
-                        ? projectRelation
-                        : { id: task.project_id, title: 'Projeto Indefinido' },
-                    users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
-                        ? userRelation
-                        : { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
-                };
-            });
-            setTasks(sanitizedTasks as Task[]);
-
-            const { data: projectsData, error: projectsError } = await supabase.from('projects').select('id, title').order('title');
-            if (projectsError) throw projectsError;
-            setProjects(projectsData || []);
-
-            const { data: usersData, error: usersError } = await supabase.from('users').select('id, full_name').order('full_name');
-            if (usersError) throw usersError;
-            setUsers(usersData || []);
-        } catch (err: any) {
-            setError(`Falha ao buscar dados: ${err.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
+        const controller = new AbortController();
+        const signal = controller.signal;
+
+        const fetchData = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const [tasksRes, projectsRes, usersRes] = await Promise.all([
+                    supabase.from('tasks').select('*, projects(id, title), users(id, full_name, avatar_url)').abortSignal(signal),
+                    supabase.from('projects').select('id, title').order('title').abortSignal(signal),
+                    supabase.from('users').select('id, full_name').order('full_name').abortSignal(signal),
+                ]);
+
+                if (signal.aborted) return;
+                
+                const { data: tasksData, error: tasksError } = tasksRes;
+                if (tasksError) throw tasksError;
+
+                const { data: projectsData, error: projectsError } = projectsRes;
+                if (projectsError) throw projectsError;
+
+                const { data: usersData, error: usersError } = usersRes;
+                if (usersError) throw usersError;
+
+                const sanitizedTasks = (tasksData || []).map(task => {
+                    return {
+                        ...task,
+                        projects: task.projects || { id: task.project_id, title: 'Projeto Indefinido' },
+                        users: task.users || { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' }
+                    };
+                });
+                setTasks(sanitizedTasks as Task[]);
+                setProjects(projectsData || []);
+                setUsers(usersData || []);
+            } catch (err: any) {
+                if (err.name !== 'AbortError') {
+                    setError(`Falha ao buscar dados: ${err.message}`);
+                }
+            } finally {
+                if (!signal.aborted) {
+                    setLoading(false);
+                }
+            }
+        };
+
         fetchData();
+
+        return () => {
+            controller.abort();
+        };
     }, []);
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {

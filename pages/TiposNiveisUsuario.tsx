@@ -26,27 +26,41 @@ const TiposNiveisUsuario: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
-  const fetchLevels = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('user_levels')
-        .select('*')
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setLevels(data || []);
-    } catch (error: any) {
-      setError(`Failed to fetch data: ${error.message}`);
-      console.error("Error fetching user levels:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const fetchLevels = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await supabase
+          .from('user_levels')
+          .select('*')
+          .order('name', { ascending: true })
+          .abortSignal(signal);
+
+        if (error) throw error;
+        if (!signal.aborted) {
+            setLevels(data || []);
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+            setError(`Failed to fetch data: ${error.message}`);
+            console.error("Error fetching user levels:", error);
+        }
+      } finally {
+        if (!signal.aborted) {
+            setLoading(false);
+        }
+      }
+    };
+
     fetchLevels();
+
+    return () => {
+        controller.abort();
+    };
   }, []);
 
   const openModalForNew = () => {
