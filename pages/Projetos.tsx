@@ -176,6 +176,28 @@ const Projetos: React.FC = () => {
     setCurrentProject(prev => ({ ...prev, [name]: value }));
   };
 
+  const sanitizeAndAddProject = (project: any, existingProjects: Project[]) => {
+      const companyRelation = project.companies;
+      const userRelation = project.users;
+      
+      const sanitizedProject: Project = {
+        ...project,
+        companies: (companyRelation && typeof companyRelation === 'object' && !Array.isArray(companyRelation)) 
+          ? companyRelation 
+          : companies.find(c => c.id === project.company_id) || { id: project.company_id, name: 'Empresa Indefinida' },
+        users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+          ? userRelation
+          : users.find(u => u.id === project.manager_id) || { id: project.manager_id, full_name: 'Responsável Indefinido' },
+      };
+
+      if (isEditing) {
+        return existingProjects.map(p => p.id === sanitizedProject.id ? sanitizedProject : p);
+      } else {
+        return [...existingProjects, sanitizedProject].sort((a,b) => a.title.localeCompare(b.title));
+      }
+  };
+
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -202,20 +224,33 @@ const Projetos: React.FC = () => {
       status: currentProject.status || 'Pendente',
     };
     
-    let query;
-    if (isEditing) {
-      query = supabase.from('projects').update(projectData).eq('id', currentProject.id);
-    } else {
-      query = supabase.from('projects').insert([projectData]);
-    }
-    
-    const { error } = await query;
-    if (error) {
-      setError(error.message);
-    } else {
-      closeModal();
-      await fetchData();
-      setNotification({ type: 'success', message: `Projeto ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
+    try {
+        let savedProject;
+        if (isEditing) {
+            const { data, error } = await supabase
+                .from('projects')
+                .update(projectData)
+                .eq('id', currentProject.id!)
+                .select('*, companies(id, name), users:manager_id(id, full_name)')
+                .single();
+            if (error) throw error;
+            savedProject = data;
+        } else {
+            const { data, error } = await supabase
+                .from('projects')
+                .insert(projectData)
+                .select('*, companies(id, name), users:manager_id(id, full_name)')
+                .single();
+            if (error) throw error;
+            savedProject = { ...data, progress: 0 };
+        }
+        
+        setProjects(prev => sanitizeAndAddProject(savedProject, prev));
+        closeModal();
+        setNotification({ type: 'success', message: `Projeto ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
+
+    } catch(error: any) {
+        setError(error.message);
     }
   };
   

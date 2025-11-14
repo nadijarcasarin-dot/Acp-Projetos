@@ -80,28 +80,43 @@ const CargosUsuario: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     const { name } = currentRole;
 
-    if (name?.trim()) {
-      let query;
-      const roleData = { name: name.trim() };
+    if (!name?.trim()) {
+      setError("O nome do cargo não pode estar vazio.");
+      return;
+    }
+    
+    const roleData = { name: name.trim() };
 
+    try {
       if (isEditing) {
-        query = supabase.from('job_titles').update(roleData).eq('id', currentRole.id);
+        const { data, error } = await supabase
+          .from('job_titles')
+          .update(roleData)
+          .eq('id', currentRole.id!)
+          .select()
+          .single();
+        if (error) throw error;
+        setRoles(prev => prev.map(r => r.id === data.id ? data : r));
+        setNotification({ type: 'success', message: 'Cargo atualizado com sucesso!' });
       } else {
-        query = supabase.from('job_titles').insert([roleData]);
+        const { data, error } = await supabase
+          .from('job_titles')
+          .insert(roleData)
+          .select()
+          .single();
+        if (error) throw error;
+        setRoles(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setNotification({ type: 'success', message: 'Cargo criado com sucesso!' });
       }
-      
-      const { error: queryError } = await query;
-      if (queryError) {
-        setError(queryError.message);
-      } else {
-        closeModal();
-        await fetchRoles();
-        setNotification({ type: 'success', message: `Cargo ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
-      }
+      closeModal();
+    } catch (error: any) {
+      setError(error.message);
     }
   };
+
 
   const handleConfirmDelete = async () => {
     if (!roleToDelete) return;

@@ -158,6 +158,27 @@ const Tarefas: React.FC = () => {
         setIsModalOpen(false);
         setError(null);
     };
+    
+    const sanitizeAndAddTask = (task: any, existingTasks: Task[]) => {
+        const projectRelation = task.projects;
+        const userRelation = task.users;
+
+        const sanitizedTask: Task = {
+            ...task,
+            projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+                ? projectRelation
+                : projects.find(p => p.id === task.project_id) || { id: task.project_id, title: 'Projeto Indefinido' },
+            users: (userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation))
+                ? userRelation
+                : users.find(u => u.id === task.assignee_id) || { id: task.assignee_id, full_name: 'Responsável Indefinido', avatar_url: '' },
+        };
+
+        if (isEditing) {
+            return existingTasks.map(t => t.id === sanitizedTask.id ? sanitizedTask : t);
+        } else {
+            return [...existingTasks, sanitizedTask];
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -173,18 +194,35 @@ const Tarefas: React.FC = () => {
             status: currentTask.status || 'Pendente',
         };
 
-        const { error } = isEditing
-            ? await supabase.from('tasks').update(taskData).eq('id', currentTask.id)
-            : await supabase.from('tasks').insert([taskData]);
-        
-        if (error) {
-            setError(error.message);
-        } else {
+        try {
+            let savedTask;
+            if (isEditing) {
+                const { data, error } = await supabase
+                    .from('tasks')
+                    .update(taskData)
+                    .eq('id', currentTask.id!)
+                    .select('*, projects(id, title), users(id, full_name, avatar_url)')
+                    .single();
+                if (error) throw error;
+                savedTask = data;
+            } else {
+                const { data, error } = await supabase
+                    .from('tasks')
+                    .insert(taskData)
+                    .select('*, projects(id, title), users(id, full_name, avatar_url)')
+                    .single();
+                if (error) throw error;
+                savedTask = data;
+            }
+            
+            setTasks(prev => sanitizeAndAddTask(savedTask, prev));
             closeModal();
-            await fetchData();
             setNotification({ type: 'success', message: `Tarefa ${isEditing ? 'atualizada' : 'criada'} com sucesso!` });
+        } catch (error: any) {
+            setError(error.message);
         }
     };
+
 
     const handleConfirmDelete = async () => {
         if (!taskToDelete) return;

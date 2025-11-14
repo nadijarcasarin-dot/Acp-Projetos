@@ -80,26 +80,40 @@ const TiposNiveisUsuario: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     const { name } = currentLevel;
 
-    if (name?.trim()) {
-      let query;
-      const levelData = { name: name.trim() };
+    if (!name?.trim()) {
+      setError("O nome do nível não pode estar vazio.");
+      return;
+    }
 
+    const levelData = { name: name.trim() };
+
+    try {
       if (isEditing) {
-        query = supabase.from('user_levels').update(levelData).eq('id', currentLevel.id);
+        const { data, error } = await supabase
+          .from('user_levels')
+          .update(levelData)
+          .eq('id', currentLevel.id!)
+          .select()
+          .single();
+        if (error) throw error;
+        setLevels(prev => prev.map(l => l.id === data.id ? data : l));
+        setNotification({ type: 'success', message: 'Nível atualizado com sucesso!' });
       } else {
-        query = supabase.from('user_levels').insert([levelData]);
+        const { data, error } = await supabase
+          .from('user_levels')
+          .insert(levelData)
+          .select()
+          .single();
+        if (error) throw error;
+        setLevels(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setNotification({ type: 'success', message: 'Nível criado com sucesso!' });
       }
-      
-      const { error: queryError } = await query;
-      if (queryError) {
-        setError(queryError.message);
-      } else {
-        closeModal();
-        await fetchLevels();
-        setNotification({ type: 'success', message: `Nível ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
-      }
+      closeModal();
+    } catch (error: any) {
+      setError(error.message);
     }
   };
 

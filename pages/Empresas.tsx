@@ -84,24 +84,37 @@ const Empresas: React.FC = () => {
     setError(null);
     const { name, type, city, district } = currentCompany;
 
-    if (name?.trim() && type?.trim() && city?.trim() && district?.trim()) {
-      let query;
-      const companyData = { name, type, city, district };
+    if (!name?.trim() || !type?.trim() || !city?.trim() || !district?.trim()) {
+      setError("Todos os campos devem ser preenchidos.");
+      return;
+    }
+    
+    const companyData = { name, type, city, district };
 
+    try {
       if (isEditing) {
-        query = supabase.from('companies').update(companyData).eq('id', currentCompany.id);
+        const { data, error } = await supabase
+          .from('companies')
+          .update(companyData)
+          .eq('id', currentCompany.id!)
+          .select()
+          .single();
+        if (error) throw error;
+        setCompanies(prev => prev.map(c => c.id === data.id ? data : c));
+        setNotification({ type: 'success', message: 'Empresa atualizada com sucesso!' });
       } else {
-        query = supabase.from('companies').insert([companyData]);
+        const { data, error } = await supabase
+          .from('companies')
+          .insert(companyData)
+          .select()
+          .single();
+        if (error) throw error;
+        setCompanies(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setNotification({ type: 'success', message: 'Empresa criada com sucesso!' });
       }
-      
-      const { error } = await query;
-      if (error) {
-        setError(error.message);
-      } else {
-        closeModal();
-        await fetchCompanies();
-        setNotification({ type: 'success', message: `Empresa ${isEditing ? 'atualizada' : 'criada'} com sucesso!` });
-      }
+      closeModal();
+    } catch (error: any) {
+      setError(error.message);
     }
   };
   
