@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { ExclamationCircleIcon } from './icons/ExclamationCircleIcon';
 
 interface Props {
@@ -9,8 +9,8 @@ interface State {
   hasError: boolean;
 }
 
-// FIX: Reverted to extending the named `Component` import to resolve type issues with `this.props` and `this.setState`.
-class ErrorBoundary extends Component<Props, State> {
+// FIX: To resolve errors with 'this.props' and 'this.setState' not being found, the component was modified to extend 'React.Component' directly, instead of using a named import for 'Component'.
+class ErrorBoundary extends React.Component<Props, State> {
   public state: State = {
     hasError: false
   };

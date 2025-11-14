@@ -175,7 +175,7 @@ const Usuarios: React.FC = () => {
         avatarUrl = urlData.publicUrl;
       }
   
-      const { error: updateError } = await supabase
+      const { data: updatedUser, error: updateError } = await supabase
         .from('users')
         .update({ 
           full_name: editingUser.full_name,
@@ -184,12 +184,20 @@ const Usuarios: React.FC = () => {
           job_title_id: editingUser.job_title_id,
           avatar_url: avatarUrl,
         })
-        .eq('id', editingUser.id);
+        .eq('id', editingUser.id)
+        .select('*, user_levels(name), job_titles(name)')
+        .single();
   
       if (updateError) throw updateError;
       
+      const sanitizedUser = {
+        ...updatedUser,
+        user_levels: updatedUser.user_levels || { name: 'Nível Indefinido' },
+        job_titles: updatedUser.job_titles || { name: 'Cargo Indefinido' },
+      };
+
+      setUsers(prev => prev.map(u => u.id === sanitizedUser.id ? (sanitizedUser as UserProfile) : u));
       closeModal();
-      await fetchData();
       setNotification({ type: 'success', message: 'Usuário atualizado com sucesso!' });
     } catch (err: any) {
       if (err.message.includes('violates row-level security policy')) {
@@ -225,7 +233,7 @@ const Usuarios: React.FC = () => {
                 avatarUrl = urlData.publicUrl;
             }
 
-            const { error: profileError } = await supabase
+            const { data: newProfile, error: profileError } = await supabase
                 .from('users')
                 .insert({
                     id: authData.user.id,
@@ -234,12 +242,20 @@ const Usuarios: React.FC = () => {
                     user_level_id: newUser.user_level_id,
                     job_title_id: newUser.job_title_id,
                     avatar_url: avatarUrl,
-                });
+                })
+                .select('*, user_levels(name), job_titles(name)')
+                .single();
             
             if (profileError) throw profileError;
 
+            const sanitizedUser = {
+                ...newProfile,
+                user_levels: newProfile.user_levels || { name: availableLevels.find(l => l.id.toString() === newUser.user_level_id)?.name || 'Nível Indefinido' },
+                job_titles: newProfile.job_titles || { name: availableTitles.find(t => t.id.toString() === newUser.job_title_id)?.name || 'Cargo Indefinido' },
+            };
+
+            setUsers(prev => [...prev, sanitizedUser as UserProfile].sort((a,b) => a.full_name.localeCompare(b.full_name)));
             closeModal();
-            await fetchData();
             setNotification({ type: 'success', message: 'Usuário criado com sucesso!' });
         }
     } catch (err: any) {
