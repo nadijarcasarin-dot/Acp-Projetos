@@ -95,7 +95,25 @@ const Projetos: React.FC = () => {
 
       if (projectsError) throw projectsError;
       
-      const sanitizedProjects = (projectsData || []).map(project => ({
+      const { data: tasksData, error: tasksError } = await supabase
+        .from('tasks')
+        .select('project_id, status');
+
+      if (tasksError) throw tasksError;
+
+      const projectsWithProgress = (projectsData || []).map(project => {
+        const projectTasks = (tasksData || []).filter(task => task.project_id === project.id);
+        const completedTasks = projectTasks.filter(task => task.status === 'Concluída').length;
+        const totalTasks = projectTasks.length;
+        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        
+        return {
+            ...project,
+            progress: progress,
+        };
+      });
+
+      const sanitizedProjects = projectsWithProgress.map(project => ({
         ...project,
         companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
         users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
@@ -208,10 +226,12 @@ const Projetos: React.FC = () => {
   };
 
   const filteredProjects = projects.filter(project => {
-    if (!project) return false;
+    if (!project || typeof project.title !== 'string' || !project.companies || typeof project.companies.name !== 'string') {
+        return false;
+    }
     const searchTermLower = searchTerm.toLowerCase();
-    const titleMatch = typeof project.title === 'string' && project.title.toLowerCase().includes(searchTermLower);
-    const companyMatch = project.companies && typeof project.companies.name === 'string' && project.companies.name.toLowerCase().includes(searchTermLower);
+    const titleMatch = project.title.toLowerCase().includes(searchTermLower);
+    const companyMatch = project.companies.name.toLowerCase().includes(searchTermLower);
     return titleMatch || companyMatch;
   });
   

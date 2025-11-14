@@ -198,10 +198,10 @@ const Tarefas: React.FC = () => {
     };
 
     const filteredTasks = tasks.filter(task => {
-        if (!task) return false;
+        if (!task || task.project_id == null || task.assignee_id == null) return false;
         const statusMatch = filters.status === 'Todos' || task.status === filters.status;
-        const projectMatch = filters.project === 'Todos' || (task.project_id != null && task.project_id.toString() === filters.project);
-        const assigneeMatch = filters.assignee === 'Todos' || (task.assignee_id != null && task.assignee_id === filters.assignee);
+        const projectMatch = filters.project === 'Todos' || task.project_id.toString() === filters.project;
+        const assigneeMatch = filters.assignee === 'Todos' || task.assignee_id === filters.assignee;
         return statusMatch && projectMatch && assigneeMatch;
     });
 
@@ -258,7 +258,7 @@ const Tarefas: React.FC = () => {
                                 <div key={task.id} className={`bg-white rounded-lg shadow-md p-4 border-l-[5px] ${border}`}>
                                     {/* Top section: Project & Assignee */}
                                     <div className="flex justify-between items-center">
-                                        <p className="text-sm text-gray-500">{task.projects?.title || 'Projeto não encontrado'}</p>
+                                        <p className="font-bold text-lg text-blue-800">{task.projects?.title || 'Projeto não encontrado'}</p>
                                         <div className="flex items-center">
                                             <span className="text-sm font-semibold text-gray-700 mr-2">{task.users?.full_name || 'N/A'}</span>
                                             <img src={task.users?.avatar_url || `https://i.pravatar.cc/150?u=${task.assignee_id}`} alt={task.users?.full_name || 'Avatar'} className="h-8 w-8 rounded-full object-cover" />
