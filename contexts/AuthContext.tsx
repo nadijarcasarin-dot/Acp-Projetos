@@ -38,25 +38,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // The onAuthStateChange listener handles the initial session check as well as
-    // any subsequent authentication events. This is a more robust way to handle
-    // session state, avoiding race conditions between getSession() and the listener.
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event: AuthChangeEvent, sessionState: Session | null) => {
-        setSession(sessionState);
-        if (sessionState?.user) {
-          const profile = await fetchUserProfile(sessionState.user);
-          setUserProfile(profile);
-        } else {
+        try {
+          setSession(sessionState);
+          if (sessionState?.user) {
+            const profile = await fetchUserProfile(sessionState.user);
+            setUserProfile(profile);
+          } else {
+            setUserProfile(null);
+          }
+        } catch (error) {
+          console.error("Failed to process auth state change, treating as logged out.", error);
+          setSession(null);
           setUserProfile(null);
+        } finally {
+          // This is critical: ensures loading is always set to false,
+          // preventing the app from getting stuck on the loading screen
+          // even if there's an error reading a corrupted session.
+          setLoading(false);
         }
-        // The first time the listener fires, the initial auth check is complete.
-        setLoading(false);
       }
     );
 
     return () => {
-      // Cleanup subscription on unmount
       authListener.subscription.unsubscribe();
     };
   }, []);
