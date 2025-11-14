@@ -18,6 +18,7 @@ import Kanban from './pages/Kanban';
 import Relatorios from './pages/Relatorios';
 import { AuthContext } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const [activePage, setActivePage] = useState<Page>('Dashboard');
@@ -80,7 +81,9 @@ const App: React.FC = () => {
       <div className={`transition-all duration-300 ${isSidebarCollapsed ? 'ml-20' : 'ml-64'}`}>
         <Header onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
         <main>
-          {renderContent()}
+          <ErrorBoundary>
+            {renderContent()}
+          </ErrorBoundary>
         </main>
       </div>
     </div>
