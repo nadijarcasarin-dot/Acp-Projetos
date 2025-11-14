@@ -150,11 +150,14 @@ const Documentos: React.FC = () => {
         uploaded_by_id: user?.id || null,
     };
 
-    const { error: insertError } = await supabase.from('documents').insert([docData]);
+    const { data: newDoc, error: insertError } = await supabase
+        .from('documents')
+        .insert(docData)
+        .select('*, projects(id, title)')
+        .single();
     
     setIsUploading(false);
     if (insertError) {
-        // Se a inserção falhar, remova o arquivo que já foi upado.
         await supabase.storage.from('documentos').remove([filePath]);
         let friendlyMessage = `Erro ao salvar documento: ${insertError.message}`;
         if (insertError.message.toLowerCase().includes('security policy')) {
@@ -164,7 +167,16 @@ const Documentos: React.FC = () => {
     } else {
         setNotification({ type: 'success', message: 'Documento carregado com sucesso!' });
         closeModal();
-        await fetchData();
+        
+        const projectRelation = newDoc.projects;
+        const sanitizedDoc = {
+          ...newDoc,
+          projects: (projectRelation && typeof projectRelation === 'object' && !Array.isArray(projectRelation))
+            ? projectRelation
+            : projects.find(p => p.id.toString() === newDocument.project_id) || { id: newDoc.project_id, title: 'Projeto Indefinido' }
+        } as Document;
+
+        setDocuments(prev => [sanitizedDoc, ...prev]);
     }
   };
 

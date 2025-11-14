@@ -11,9 +11,14 @@ interface State {
 
 // FIX: To resolve errors with 'this.props' and 'this.setState' not being found, the component was modified to extend 'React.Component' directly, instead of using a named import for 'Component'.
 class ErrorBoundary extends React.Component<Props, State> {
-  public state: State = {
-    hasError: false
-  };
+  // FIX: The component was throwing errors because 'this.props' and 'this.setState' were not found.
+  // Initializing state in the constructor ensures the component is set up correctly.
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false
+    };
+  }
 
   public static getDerivedStateFromError(_: Error): State {
     // Atualiza o estado para que a próxima renderização mostre a UI de fallback.
