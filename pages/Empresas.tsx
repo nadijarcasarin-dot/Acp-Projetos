@@ -32,6 +32,7 @@ const Empresas: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
     const fetchCompanies = async () => {
       setLoading(true);
@@ -48,7 +49,9 @@ const Empresas: React.FC = () => {
             setCompanies(data || []);
         }
       } catch (error: any) {
-        if (error.name !== 'AbortError') {
+        if (error.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+        } else {
             setError(`Falha ao buscar dados: ${error.message}`);
         }
       } finally {
@@ -61,6 +64,7 @@ const Empresas: React.FC = () => {
     fetchCompanies();
     
     return () => {
+        clearTimeout(timeoutId);
         controller.abort();
     };
   }, []);
@@ -198,6 +202,8 @@ const Empresas: React.FC = () => {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr><td colSpan={5} className="text-center py-4">Carregando...</td></tr>
+              ) : error ? (
+                <tr><td colSpan={5} className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</td></tr>
               ) : filteredCompanies.map((company) => (
                 <tr key={company.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{company.name}</td>

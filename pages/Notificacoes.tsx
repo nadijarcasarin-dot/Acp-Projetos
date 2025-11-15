@@ -43,21 +43,37 @@ const Notificacoes: React.FC = () => {
   useEffect(() => {
     if (!userProfile) return;
 
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
+
     const fetchNotifications = async () => {
       setLoading(true);
       setError(null);
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userProfile.id)
-        .order('created_at', { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', userProfile.id)
+          .order('created_at', { ascending: false })
+          .abortSignal(signal);
 
-      if (error) {
-        setError(`Falha ao buscar notificações: ${error.message}`);
-      } else {
-        setNotifications(data || []);
+        if (error) throw error;
+        
+        if (!signal.aborted) {
+          setNotifications(data || []);
+        }
+      } catch (err: any) {
+          if (err.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+          } else {
+            setError(`Falha ao buscar notificações: ${err.message}`);
+          }
+      } finally {
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     };
 
     fetchNotifications();
@@ -79,6 +95,8 @@ const Notificacoes: React.FC = () => {
       .subscribe();
 
     return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
       supabase.removeChannel(channel);
     };
   }, [userProfile]);
@@ -166,7 +184,7 @@ const Notificacoes: React.FC = () => {
         {loading ? (
             <p className="text-center text-gray-500 py-8">Carregando notificações...</p>
         ) : error ? (
-            <p className="text-center text-red-500 py-8">{error}</p>
+            <div className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</div>
         ) : filteredNotifications.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-lg shadow-md">
                 <BellIcon className="mx-auto h-12 w-12 text-gray-400" />

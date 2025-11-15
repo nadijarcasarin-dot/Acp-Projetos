@@ -29,6 +29,7 @@ const TiposNiveisUsuario: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
     const fetchLevels = async () => {
       setLoading(true);
@@ -45,9 +46,10 @@ const TiposNiveisUsuario: React.FC = () => {
             setLevels(data || []);
         }
       } catch (error: any) {
-        if (error.name !== 'AbortError') {
+        if (error.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+        } else {
             setError(`Failed to fetch data: ${error.message}`);
-            console.error("Error fetching user levels:", error);
         }
       } finally {
         if (!signal.aborted) {
@@ -59,6 +61,7 @@ const TiposNiveisUsuario: React.FC = () => {
     fetchLevels();
 
     return () => {
+        clearTimeout(timeoutId);
         controller.abort();
     };
   }, []);
@@ -185,6 +188,8 @@ const TiposNiveisUsuario: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md p-4">
           {loading ? (
             <p className="text-center text-gray-500">Carregando...</p>
+          ) : error ? (
+             <p className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</p>
           ) : (
             <ul>
               {filteredLevels.map((level, index) => (

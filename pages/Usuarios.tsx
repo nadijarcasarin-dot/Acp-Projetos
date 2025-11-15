@@ -79,6 +79,7 @@ const Usuarios: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
     const fetchData = async () => {
       setLoading(true);
@@ -119,9 +120,10 @@ const Usuarios: React.FC = () => {
         setAvailableTitles(titlesData || []);
 
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
+        if (err.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+        } else {
             setError(`Falha ao buscar dados: ${err.message}`);
-            console.error(err);
         }
       } finally {
         if (!signal.aborted) {
@@ -133,6 +135,7 @@ const Usuarios: React.FC = () => {
     fetchData();
 
     return () => {
+        clearTimeout(timeoutId);
         controller.abort();
     };
   }, []);
@@ -350,7 +353,8 @@ const Usuarios: React.FC = () => {
           />
         </div>
         
-        {loading ? <p className="text-center text-gray-500">Carregando usuários...</p> : (
+        {loading ? <p className="text-center text-gray-500">Carregando usuários...</p> : 
+         error ? <p className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</p> : (
             <>
                 {filteredUsers.length > 0 ? (
                     <div className="space-y-4">

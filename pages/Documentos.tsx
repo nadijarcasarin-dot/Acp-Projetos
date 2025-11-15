@@ -62,6 +62,7 @@ const Documentos: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
     const fetchData = async () => {
       setLoading(true);
@@ -93,7 +94,9 @@ const Documentos: React.FC = () => {
         setProjects(projData || []);
 
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
+        if (err.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+        } else {
             setError(`Falha ao carregar dados: ${err.message}`);
         }
       } finally {
@@ -106,6 +109,7 @@ const Documentos: React.FC = () => {
     fetchData();
 
     return () => {
+        clearTimeout(timeoutId);
         controller.abort();
     };
   }, []);
@@ -275,104 +279,90 @@ const Documentos: React.FC = () => {
       </div>
       
       {loading ? <p className="text-center text-gray-500">Carregando documentos...</p> :
-      error ? <p className="text-center text-red-500">{error}</p> :
-      <div className="space-y-4">
-        {filteredDocuments.map((doc) => (
-          <div key={doc.id} className="bg-white rounded-lg shadow-md p-4 flex items-center justify-between">
-            <div className="flex items-center overflow-hidden">
-                <div className={`p-3 rounded-lg mr-4 flex-shrink-0 ${getFileIconColor(doc.file_type).replace('text-', 'bg-').replace('-500', '-100')}`}>
-                    <DocumentIcon className={`h-6 w-6 ${getFileIconColor(doc.file_type)}`} />
-                </div>
-              <div className="truncate">
-                <p className="font-bold text-gray-800 truncate">{doc.title}</p>
-                <p className="text-sm text-gray-600 mb-1 truncate">{doc.description}</p>
-                <p className="text-sm text-gray-500 truncate">
-                  {doc.file_name} · Projeto: {doc.projects?.title || 'N/A'} · Enviado em: {formatDate(doc.created_at)}
-                </p>
-              </div>
+      error ? <p className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</p> : (
+        <div className="bg-white rounded-lg shadow-md">
+          {filteredDocuments.length > 0 ? (
+            <ul className="divide-y divide-gray-200">
+              {filteredDocuments.map(doc => (
+                <li key={doc.id} className="p-4 flex items-center justify-between hover:bg-gray-50">
+                  <div className="flex items-center flex-1 min-w-0">
+                    <DocumentIcon className={`h-10 w-10 mr-4 flex-shrink-0 ${getFileIconColor(doc.file_type)}`} />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{doc.title}</p>
+                      <p className="text-sm text-gray-600 truncate">{doc.description}</p>
+                      <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
+                        <span>Projeto: {doc.projects?.title || 'N/A'}</span>
+                        <span>Adicionado em: {formatDate(doc.created_at)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-4 ml-4 flex-shrink-0">
+                    <button onClick={() => handleDownload(doc.file_path, doc.file_name)} className="text-gray-500 hover:text-blue-600" title="Baixar">
+                      <DownloadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => openDeleteModal(doc)} className="text-gray-500 hover:text-red-600" title="Excluir">
+                      <TrashIcon className="h-5 w-5" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-center py-16">
+              <DocumentIcon className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhum documento encontrado</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {selectedProject === 'Todos' ? 'Carregue o primeiro documento.' : 'Nenhum documento encontrado para este projeto.'}
+              </p>
             </div>
-            <div className="flex items-center space-x-4 pl-4">
-              <button onClick={() => handleDownload(doc.file_path, doc.file_name)} className="text-gray-500 hover:text-blue-600" title="Baixar">
-                <DownloadIcon className="h-5 w-5" />
-              </button>
-              <button onClick={() => openDeleteModal(doc)} className="text-gray-500 hover:text-red-600" title="Excluir">
-                <TrashIcon className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-      }
+          )}
+        </div>
+      )}
     </div>
-
     <Modal
         isOpen={isModalOpen}
         onClose={closeModal}
         title="Carregar Novo Documento"
-      >
+    >
         <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
-              <input type="text" name="title" value={newDocument.title} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required autoFocus />
-            </div>
-             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-              <textarea name="description" value={newDocument.description} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Projeto</label>
-              <select name="project_id" value={newDocument.project_id} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                <option value="">Selecione um projeto</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-              </select>
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Arquivo</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                    <div className="space-y-1 text-center">
-                        <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="flex text-sm text-gray-600">
-                            <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                                <span>Carregue um arquivo</span>
-                                <input id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} required/>
-                            </label>
-                            <p className="pl-1">ou arraste e solte</p>
-                        </div>
-                        {newDocument.file ? (
-                             <p className="text-xs text-green-600">{newDocument.file.name}</p>
-                        ) : (
-                            <p className="text-xs text-gray-500">PNG, JPG, PDF até 10MB</p>
-                        )}
-                    </div>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                    <input type="text" name="title" value={newDocument.title} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                    <textarea name="description" value={newDocument.description} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Projeto</label>
+                    <select name="project_id" value={newDocument.project_id} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        <option value="">Selecione um projeto</option>
+                        {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Arquivo</label>
+                    <input type="file" onChange={handleFileChange} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required />
                 </div>
             </div>
-          </div>
-          <div className="flex justify-end pt-6 border-t mt-6">
-            <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={isUploading}>
-              Cancelar
-            </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400" disabled={isUploading}>
-              {isUploading ? 'Salvando...' : 'Salvar'}
-            </button>
-          </div>
+            <div className="flex justify-end pt-6 border-t mt-6">
+                <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={isUploading}>
+                    Cancelar
+                </button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400" disabled={isUploading}>
+                    {isUploading ? 'Carregando...' : 'Salvar'}
+                </button>
+            </div>
         </form>
-      </Modal>
-      <ConfirmationModal
+    </Modal>
+    <ConfirmationModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={handleConfirmDelete}
         title="Confirmar Exclusão"
-        message={
-          <>
-            Tem certeza que deseja excluir o documento <strong>"{docToDelete?.title}"</strong>?
-            <br />
-            Esta ação removerá o arquivo permanentemente.
-          </>
-        }
-      />
+        message={<>Tem certeza que deseja excluir o documento <strong>"{docToDelete?.title}"</strong>?</>}
+    />
     </>
   );
 };

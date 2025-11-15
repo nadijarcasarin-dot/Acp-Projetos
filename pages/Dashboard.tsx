@@ -65,6 +65,7 @@ const Dashboard: React.FC = () => {
     useEffect(() => {
         const controller = new AbortController();
         const signal = controller.signal;
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
         const fetchData = async () => {
             setLoading(true);
@@ -93,11 +94,11 @@ const Dashboard: React.FC = () => {
                 }));
                 setTeamWorkloadData(processWorkloadStats(sanitizedTasks));
 
-            } catch (err: unknown) {
-                if (err instanceof Error && err.name !== 'AbortError') {
-                    const message = err.message || String(err);
-                    setError(`Falha ao carregar dados do dashboard: ${message}`);
-                    console.error(err);
+            } catch (err: any) {
+                if (err.name === 'AbortError') {
+                    setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+                } else {
+                    setError(`Falha ao carregar dados do dashboard: ${err.message}`);
                 }
             } finally {
                 if (!signal.aborted) {
@@ -109,6 +110,7 @@ const Dashboard: React.FC = () => {
         fetchData();
         
         return () => {
+            clearTimeout(timeoutId);
             controller.abort();
         };
     }, []);

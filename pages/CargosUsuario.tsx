@@ -29,6 +29,7 @@ const CargosUsuario: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
     const fetchRoles = async () => {
       setLoading(true);
@@ -45,9 +46,10 @@ const CargosUsuario: React.FC = () => {
             setRoles(data || []);
         }
       } catch (error: any) {
-        if (error.name !== 'AbortError') {
+        if (error.name === 'AbortError') {
+            setError('A requisição demorou muito. Verifique sua conexão e tente novamente.');
+        } else {
             setError(`Falha ao buscar dados: ${error.message}`);
-            console.error("Error fetching job titles:", error);
         }
       } finally {
         if (!signal.aborted) {
@@ -59,6 +61,7 @@ const CargosUsuario: React.FC = () => {
     fetchRoles();
 
     return () => {
+        clearTimeout(timeoutId);
         controller.abort();
     };
   }, []);
@@ -188,6 +191,8 @@ const CargosUsuario: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md p-4">
           {loading ? (
             <p className="text-center text-gray-500">Carregando...</p>
+          ) : error ? (
+            <p className="p-6 text-center text-red-500 bg-red-100 rounded-lg">{error}</p>
           ) : (
             <ul>
               {filteredRoles.map((role, index) => (

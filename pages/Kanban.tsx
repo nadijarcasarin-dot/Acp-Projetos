@@ -129,6 +129,7 @@ const Kanban: React.FC = () => {
     useEffect(() => {
         const controller = new AbortController();
         const signal = controller.signal;
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
         const fetchData = async () => {
             setLoading(true);
@@ -160,9 +161,11 @@ const Kanban: React.FC = () => {
                 setUsers(usersData || []);
 
             } catch (err: any) {
-                if (err.name !== 'AbortError') {
-                    setNotification({ type: 'error', message: `Falha ao buscar dados: ${err.message}` });
+                let errorMessage = `Falha ao buscar dados: ${err.message}`;
+                if (err.name === 'AbortError') {
+                    errorMessage = 'A requisição demorou muito. Verifique sua conexão e tente novamente.';
                 }
+                setNotification({ type: 'error', message: errorMessage });
             } finally {
                 if (!signal.aborted) {
                     setLoading(false);
@@ -173,6 +176,7 @@ const Kanban: React.FC = () => {
         fetchData();
 
         return () => {
+            clearTimeout(timeoutId);
             controller.abort();
         };
     }, []);
@@ -298,7 +302,7 @@ const Kanban: React.FC = () => {
           </div>
 
           <div className="flex space-x-4 overflow-x-auto pb-4">
-            {loading ? <p>Carregando quadro...</p> : (
+            {loading ? <p className="text-center text-gray-500 w-full py-8">Carregando quadro...</p> : (
                 statusColumns.map((title) => (
                     <KanbanColumn 
                         key={title} 
