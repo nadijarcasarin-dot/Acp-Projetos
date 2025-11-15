@@ -1,18 +1,121 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { AuthContext } from '../contexts/AuthContext';
 import { SearchIcon } from '../components/icons/SearchIcon';
 import { CheckIcon } from '../components/icons/CheckIcon';
+import { BellIcon } from '../components/icons/BellIcon';
 
-const notifications = [
-  { id: 1, text: 'O projeto "Sistema de Irrigação Inteligente" foi concluído. Parabéns!', time: 'há 1 anos', read: true },
-  { id: 2, text: 'Lembrete: A tarefa "Análise de custos de produção" vence em 3 dias.', time: 'há 1 anos', read: false },
-  { id: 3, text: 'Você foi designado para uma nova tarefa: "Relatório de impacto ambiental".', time: 'há 1 anos', read: false },
-  { id: 4, text: 'A tarefa "Inspeção de campo" está atrasada. Por favor, atualize seu status.', time: 'há 1 anos', read: false },
-  { id: 5, text: 'Um novo documento "Checklist de Auditoria.docx" foi adicionado ao projeto "Auditoria Ambiental Anual".', time: 'há 1 anos', read: true },
-];
+interface Notification {
+  id: number;
+  message: string;
+  created_at: string;
+  read: boolean;
+  user_id: string;
+}
+
+// Helper function to format time difference
+const formatTimeAgo = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  let interval = seconds / 31536000;
+  if (interval > 1) return `há ${Math.floor(interval)} anos`;
+  interval = seconds / 2592000;
+  if (interval > 1) return `há ${Math.floor(interval)} meses`;
+  interval = seconds / 86400;
+  if (interval > 1) return `há ${Math.floor(interval)} dias`;
+  interval = seconds / 3600;
+  if (interval > 1) return `há ${Math.floor(interval)} horas`;
+  interval = seconds / 60;
+  if (interval > 1) return `há ${Math.floor(interval)} minutos`;
+  return `há ${Math.floor(seconds)} segundos`;
+};
+
 
 const Notificacoes: React.FC = () => {
   const [activeTab, setActiveTab] = useState('Todas');
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { userProfile } = useContext(AuthContext);
+  
+  useEffect(() => {
+    if (!userProfile) return;
+
+    const fetchNotifications = async () => {
+      setLoading(true);
+      setError(null);
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userProfile.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setError(`Falha ao buscar notificações: ${error.message}`);
+      } else {
+        setNotifications(data || []);
+      }
+      setLoading(false);
+    };
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel('realtime-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userProfile.id}`,
+        },
+        (payload) => {
+          setNotifications((prev) => [payload.new as Notification, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userProfile]);
+  
+  const handleMarkAsRead = async (id: number) => {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+
+      if (error) {
+          // You can add a notification pop-up here for errors
+          console.error("Failed to mark notification as read:", error);
+      } else {
+          setNotifications(prev => 
+              prev.map(n => n.id === id ? { ...n, read: true } : n)
+          );
+      }
+  };
+  
+  const handleMarkAllAsRead = async () => {
+      if (!userProfile) return;
+      const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+      if (unreadIds.length === 0) return;
+
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', userProfile.id)
+        .in('id', unreadIds);
+      
+      if (error) {
+          console.error("Failed to mark all as read:", error);
+      } else {
+          setNotifications(prev => prev.map(n => ({...n, read: true})));
+      }
+  };
 
   const getFilteredNotifications = () => {
     if (activeTab === 'Não Lidas') {
@@ -20,6 +123,8 @@ const Notificacoes: React.FC = () => {
     }
     return notifications;
   };
+
+  const filteredNotifications = getFilteredNotifications();
 
   return (
     <div className="p-6">
@@ -38,7 +143,11 @@ const Notificacoes: React.FC = () => {
           >
             Não Lidas
           </button>
-          <button className="text-sm text-blue-600 font-semibold hover:underline">
+          <button 
+            onClick={handleMarkAllAsRead}
+            className="text-sm text-blue-600 font-semibold hover:underline disabled:text-gray-400 disabled:cursor-not-allowed"
+            disabled={notifications.every(n => n.read)}
+          >
             Marcar todas como lidas
           </button>
         </div>
@@ -54,25 +163,49 @@ const Notificacoes: React.FC = () => {
       </div>
 
       <div className="space-y-4">
-        {getFilteredNotifications().map((notification) => (
-          <div
-            key={notification.id}
-            className={`flex items-start p-4 rounded-lg transition-colors duration-200 ${
-              !notification.read ? 'bg-white shadow-sm' : 'bg-transparent'
-            }`}
-          >
-            {!notification.read && <span className="h-2 w-2 bg-blue-500 rounded-full mt-2 mr-4 flex-shrink-0"></span>}
-            <div className={`flex-grow ${notification.read ? 'ml-6' : ''}`}>
-              <p className="text-gray-800">{notification.text}</p>
-              <p className="text-sm text-gray-500 mt-1">{notification.time}</p>
+        {loading ? (
+            <p className="text-center text-gray-500 py-8">Carregando notificações...</p>
+        ) : error ? (
+            <p className="text-center text-red-500 py-8">{error}</p>
+        ) : filteredNotifications.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-lg shadow-md">
+                <BellIcon className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">Nenhuma notificação por aqui</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                    {activeTab === 'Não Lidas' 
+                    ? 'Você está em dia com tudo!' 
+                    : 'Quando algo importante acontecer, você será notificado aqui.'
+                    }
+                </p>
+                 <p className="mt-2 text-xs text-gray-400 px-4">
+                    Se você espera ver notificações, verifique se a tabela 'notifications' existe no Supabase e se as políticas de segurança (RLS) permitem a leitura (SELECT).
+                </p>
             </div>
-            {!notification.read && (
-              <button className="text-gray-400 hover:text-green-500 ml-4">
-                <CheckIcon className="h-5 w-5" />
-              </button>
-            )}
-          </div>
-        ))}
+        ) : (
+            filteredNotifications.map((notification) => (
+                <div
+                    key={notification.id}
+                    className={`flex items-start p-4 rounded-lg transition-colors duration-200 ${
+                    !notification.read ? 'bg-white shadow-sm' : 'bg-transparent'
+                    }`}
+                >
+                    {!notification.read && <span className="h-2 w-2 bg-blue-500 rounded-full mt-2 mr-4 flex-shrink-0"></span>}
+                    <div className={`flex-grow ${notification.read ? 'ml-6' : ''}`}>
+                    <p className="text-gray-800">{notification.message}</p>
+                    <p className="text-sm text-gray-500 mt-1">{formatTimeAgo(notification.created_at)}</p>
+                    </div>
+                    {!notification.read && (
+                    <button 
+                        onClick={() => handleMarkAsRead(notification.id)}
+                        className="text-gray-400 hover:text-green-500 ml-4"
+                        title="Marcar como lida"
+                    >
+                        <CheckIcon className="h-5 w-5" />
+                    </button>
+                    )}
+                </div>
+            ))
+        )}
       </div>
     </div>
   );

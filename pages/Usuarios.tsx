@@ -40,6 +40,22 @@ const emptyNewUserForm = {
     job_title_id: '',
 };
 
+const uploadAvatar = async (file: File, userId: string): Promise<string> => {
+    const filePath = `public/${userId}/${Date.now()}_${file.name}`;
+    
+    const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+    
+    return urlData.publicUrl;
+}
+
 const Usuarios: React.FC = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -175,21 +191,8 @@ const Usuarios: React.FC = () => {
   
     try {
       let avatarUrl = editingUser.avatar_url;
-  
       if (avatarFile) {
-        const filePath = `public/${editingUser.id}/${Date.now()}_${avatarFile.name}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(filePath, avatarFile, { upsert: true });
-  
-        if (uploadError) throw uploadError;
-  
-        const { data: urlData } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(filePath);
-        
-        avatarUrl = urlData.publicUrl;
+        avatarUrl = await uploadAvatar(avatarFile, editingUser.id);
       }
   
       const { data: updatedUser, error: updateError } = await supabase
@@ -239,42 +242,38 @@ const Usuarios: React.FC = () => {
         });
 
         if (authError) throw authError;
+        if (!authData.user) throw new Error("Criação do usuário falhou.");
 
-        if (authData.user) {
-            let avatarUrl = null;
-            if (avatarFile) {
-                const filePath = `public/${authData.user.id}/${Date.now()}_${avatarFile.name}`;
-                const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, avatarFile);
-                if (uploadError) throw uploadError;
-                const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
-                avatarUrl = urlData.publicUrl;
-            }
-
-            const { data: newProfile, error: profileError } = await supabase
-                .from('users')
-                .insert({
-                    id: authData.user.id,
-                    full_name: newUser.full_name,
-                    phone: newUser.phone,
-                    user_level_id: newUser.user_level_id,
-                    job_title_id: newUser.job_title_id,
-                    avatar_url: avatarUrl,
-                })
-                .select('*, user_levels(name), job_titles(name)')
-                .single();
-            
-            if (profileError) throw profileError;
-
-            const sanitizedUser = {
-                ...newProfile,
-                user_levels: newProfile.user_levels || { name: availableLevels.find(l => l.id.toString() === newUser.user_level_id)?.name || 'Nível Indefinido' },
-                job_titles: newProfile.job_titles || { name: availableTitles.find(t => t.id.toString() === newUser.job_title_id)?.name || 'Cargo Indefinido' },
-            };
-
-            setUsers(prev => [...prev, sanitizedUser as UserProfile].sort((a,b) => a.full_name.localeCompare(b.full_name)));
-            closeModal();
-            setNotification({ type: 'success', message: 'Usuário criado com sucesso!' });
+        let avatarUrl = null;
+        if (avatarFile) {
+            avatarUrl = await uploadAvatar(avatarFile, authData.user.id);
         }
+
+        const { data: newProfile, error: profileError } = await supabase
+            .from('users')
+            .insert({
+                id: authData.user.id,
+                full_name: newUser.full_name,
+                phone: newUser.phone,
+                user_level_id: newUser.user_level_id,
+                job_title_id: newUser.job_title_id,
+                avatar_url: avatarUrl,
+            })
+            .select('*, user_levels(name), job_titles(name)')
+            .single();
+        
+        if (profileError) throw profileError;
+
+        const sanitizedUser = {
+            ...newProfile,
+            user_levels: newProfile.user_levels || { name: availableLevels.find(l => l.id.toString() === newUser.user_level_id)?.name || 'Nível Indefinido' },
+            job_titles: newProfile.job_titles || { name: availableTitles.find(t => t.id.toString() === newUser.job_title_id)?.name || 'Cargo Indefinido' },
+        };
+
+        setUsers(prev => [...prev, sanitizedUser as UserProfile].sort((a,b) => a.full_name.localeCompare(b.full_name)));
+        closeModal();
+        setNotification({ type: 'success', message: 'Usuário criado com sucesso!' });
+        
     } catch (err: any) {
         if (err.message.includes('violates row-level security policy')) {
           setError("Falha de segurança: Você não tem permissão para criar este usuário. Verifique se as políticas de segurança (RLS) da tabela 'users' no Supabase permitem a inserção (INSERT).");

@@ -9,6 +9,53 @@ import { supabase } from '../lib/supabaseClient';
 const COLORS = ['#6b7280', '#3b82f6', '#ef4444', '#10b981']; // Pendente, Em Andamento, Atrasado, Concluído
 const CHART_LABELS = ['Pendente', 'Em Andamento', 'Atrasado', 'Concluído'];
 
+// --- Helper Functions for Data Processing ---
+
+const processProjectStatus = (projects: any[]): ChartData[] => {
+    const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    (projects || []).forEach(p => {
+      if (p && p.status) {
+        const status = p.status === 'Em andamento' ? 'Em Andamento' : p.status;
+        if (projectCounts.hasOwnProperty(status)) projectCounts[status]++;
+      }
+    });
+    return CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] }));
+};
+
+const processTaskStatus = (tasks: any[]): ChartData[] => {
+    const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    (tasks || []).forEach(t => {
+      if (t && t.status) {
+        let status = t.status;
+        if (status === 'Em Andamento') status = 'Em Andamento';
+        else if (status === 'Atrasada') status = 'Atrasado';
+        else if (status === 'Concluída') status = 'Concluído';
+        if (taskCounts.hasOwnProperty(status)) taskCounts[status]++;
+      }
+    });
+    return CHART_LABELS.map(label => ({ name: label, value: taskCounts[label] }));
+};
+
+const processProjectsByUser = (projects: any[]) => {
+    const managerCounts = (projects || []).reduce((acc, project) => {
+      const managerName = project?.users?.full_name;
+      if (managerName) acc[managerName] = (acc[managerName] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(managerCounts).map(([name, projects]) => ({ name, projects }));
+};
+
+const processTasksByUser = (tasks: any[]) => {
+    const userTaskCounts = (tasks || []).reduce((acc, task) => {
+        const userName = task?.users?.full_name;
+        if (userName) acc[userName] = (acc[userName] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(userTaskCounts).map(([name, tasks]) => ({ name, tasks }));
+};
+
+// --- Components ---
+
 const AiButton: React.FC = () => (
     <div className="border-t mt-4 pt-4">
         <button className="flex items-center justify-center w-full py-2 text-sm font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg">
@@ -110,57 +157,17 @@ const Relatorios: React.FC = () => {
 
   useEffect(() => {
     if (loading) return;
-
-    // --- Process non-filterable charts ---
-    // Project Status
-    const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
-    allProjects.forEach(p => {
-      if (p && p.status) {
-        const status = p.status === 'Em andamento' ? 'Em Andamento' : p.status;
-        if (projectCounts.hasOwnProperty(status)) projectCounts[status]++;
-      }
-    });
-    setProjectStatusData(CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] })));
-
-    // Projects by User
-    const managerCounts = allProjects.reduce((acc, project) => {
-      const managerName = project?.users?.full_name;
-      if (managerName) acc[managerName] = (acc[managerName] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    setProjectsByUserData(Object.entries(managerCounts).map(([name, projects]) => ({ name, projects })));
-
+    setProjectStatusData(processProjectStatus(allProjects));
+    setProjectsByUserData(processProjectsByUser(allProjects));
   }, [allProjects, loading]);
   
   useEffect(() => {
     if(loading) return;
-    
-    // --- Process filterable charts ---
     const tasksToProcess = selectedProject === 'Todos'
         ? allTasks
         : allTasks.filter(t => t.project_id?.toString() === selectedProject);
-
-    // Task Status
-    const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
-    tasksToProcess.forEach(t => {
-      if (t && t.status) {
-        let status = t.status;
-        if (status === 'Em Andamento') status = 'Em Andamento';
-        else if (status === 'Atrasada') status = 'Atrasado';
-        else if (status === 'Concluída') status = 'Concluído';
-        if (taskCounts.hasOwnProperty(status)) taskCounts[status]++;
-      }
-    });
-    setTaskStatusData(CHART_LABELS.map(label => ({ name: label, value: taskCounts[label] })));
-    
-    // Tasks by User
-    const userTaskCounts = tasksToProcess.reduce((acc, task) => {
-        const userName = task?.users?.full_name;
-        if (userName) acc[userName] = (acc[userName] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
-    setTasksByUserData(Object.entries(userTaskCounts).map(([name, tasks]) => ({ name, tasks })));
-
+    setTaskStatusData(processTaskStatus(tasksToProcess));
+    setTasksByUserData(processTasksByUser(tasksToProcess));
   }, [allTasks, selectedProject, loading]);
 
   if (loading) return <div className="p-6 text-center text-gray-500">Carregando relatórios...</div>;

@@ -53,52 +53,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    // Proactively fetch session on mount to resolve loading state.
-    const getInitialSession = async () => {
-        try {
-            const { data: { session: currentSession } } = await supabase.auth.getSession();
-            setSession(currentSession);
-            if (currentSession?.user) {
-                const profile = await fetchUserProfile(currentSession.user);
-                setUserProfile(profile);
-            } else {
-                setUserProfile(null);
-            }
-        } catch (error) {
-            console.error("Error fetching initial session:", error);
-            setUserProfile(null);
-            setSession(null);
-        } finally {
-            setLoading(false);
-        }
-    };
-    
-    getInitialSession();
+    // This effect is now definitive. It proactively fetches the session on startup
+    // to guarantee the app doesn't freeze, and then listens for subsequent changes.
 
-    // Listen for auth changes
+    const initializeSession = async () => {
+      // 1. Proactively get the current session to avoid race conditions.
+      const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Error fetching initial session:", error.message);
+        setLoading(false); // Stop loading even if there's an error.
+        return;
+      }
+
+      // 2. Process the session and profile.
+      setSession(currentSession);
+      if (currentSession?.user) {
+        const profile = await fetchUserProfile(currentSession.user);
+        setUserProfile(profile);
+      } else {
+        setUserProfile(null);
+      }
+
+      // 3. Guarantee the loading screen is removed.
+      setLoading(false);
+    };
+
+    initializeSession();
+
+    // 4. Set up a listener for subsequent auth events (login, logout).
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, sessionState: Session | null) => {
+      async (_event, sessionState) => {
+        // The listener just needs to update the state.
+        // It doesn't control the initial loading anymore.
         setSession(sessionState);
         if (sessionState?.user) {
-          const profile = await fetchUserProfile(sessionState.user);
-          setUserProfile(profile);
+            const profile = await fetchUserProfile(sessionState.user);
+            setUserProfile(profile);
         } else {
-          setUserProfile(null);
+            setUserProfile(null);
         }
       }
     );
-
-    // Proactive session refresh interval
-    // In some serverless environments (like Vercel), Supabase's default background
-    // token refresh can be unreliable, leading to the session expiring and API calls hanging.
-    // This timer ensures the session token is refreshed well before it expires, preventing freezes.
+    
+    // Proactive session refresh interval to prevent token expiration issues.
     const sessionRefreshInterval = setInterval(async () => {
-        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
-        if (error) {
-            console.error('Error proactively refreshing session:', error.message);
-        }
-        // If the session becomes null (e.g., due to an invalid refresh token),
-        // the onAuthStateChange listener will automatically handle the logout flow.
+        await supabase.auth.getSession();
     }, 1 * 60 * 1000); // Refresh every 1 minute.
 
     return () => {
@@ -114,7 +114,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     await supabase.auth.signOut();
-    setUserProfile(null);
+    // onAuthStateChange will handle setting session and profile to null.
   };
 
   const value = {

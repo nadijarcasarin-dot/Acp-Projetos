@@ -7,6 +7,54 @@ import { supabase } from '../lib/supabaseClient';
 const COLORS = ['#6b7280', '#3b82f6', '#ef4444', '#10b981']; // Pendente, Em Andamento, Atrasado, Concluído
 const CHART_LABELS = ['Pendente', 'Em Andamento', 'Atrasado', 'Concluído'];
 
+// --- Helper Functions for Data Processing ---
+
+const processProjectStats = (projects: any[]): ChartData[] => {
+    const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    (projects || []).forEach(p => {
+        if (p && p.status) {
+            if (p.status === 'Em andamento') {
+                projectCounts['Em Andamento']++;
+            } else if (projectCounts.hasOwnProperty(p.status)) {
+                projectCounts[p.status]++;
+            }
+        }
+    });
+    return CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] }));
+};
+
+const processTaskStats = (tasks: any[]): ChartData[] => {
+    const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
+    (tasks || []).forEach(t => {
+        if (t && t.status) {
+            let status = t.status;
+            if (status === 'Em Andamento') status = 'Em Andamento';
+            else if (status === 'Atrasada') status = 'Atrasado';
+            else if (status === 'Concluída') status = 'Concluído';
+            if (taskCounts.hasOwnProperty(status)) {
+                taskCounts[status]++;
+            }
+        }
+    });
+    return CHART_LABELS.map(label => ({ name: label, value: taskCounts[label] }));
+};
+
+const processWorkloadStats = (tasks: any[]): BarChartData[] => {
+    const workloadCounts = (tasks || []).reduce((acc: Record<string, number>, task: any) => {
+        const userName = task?.users?.full_name;
+        if (typeof userName === 'string' && userName.trim()) {
+            const trimmedName = userName.trim();
+            acc[trimmedName] = (acc[trimmedName] || 0) + 1;
+        }
+        return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(workloadCounts)
+        .map(([name, count]): BarChartData => ({ name, tasks: count as number }))
+        .sort((a, b) => b.tasks - a.tasks);
+};
+
+
 const Dashboard: React.FC = () => {
     const [projectStatusData, setProjectStatusData] = useState<ChartData[]>([]);
     const [taskStatusData, setTaskStatusData] = useState<ChartData[]>([]);
@@ -35,50 +83,15 @@ const Dashboard: React.FC = () => {
                 const { data: tasks, error: tasksError } = tasksRes;
                 if (tasksError) throw tasksError;
 
-                // Process project status data
-                const projectCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
-                (projects || []).forEach(p => {
-                    if (p && p.status) {
-                        if (p.status === 'Em andamento') {
-                            projectCounts['Em Andamento']++;
-                        } else if (projectCounts.hasOwnProperty(p.status)) {
-                            projectCounts[p.status]++;
-                        }
-                    }
-                });
-                setProjectStatusData(CHART_LABELS.map(label => ({ name: label, value: projectCounts[label] })));
-
-                // Process task status data
-                const taskCounts: Record<string, number> = { 'Pendente': 0, 'Em Andamento': 0, 'Atrasado': 0, 'Concluído': 0 };
-                (tasks || []).forEach(t => {
-                    if (t && t.status) {
-                        if (t.status === 'Em Andamento') taskCounts['Em Andamento']++;
-                        else if (t.status === 'Atrasada') taskCounts['Atrasado']++;
-                        else if (t.status === 'Concluída') taskCounts['Concluído']++;
-                        else if (taskCounts.hasOwnProperty(t.status)) {
-                            taskCounts[t.status]++;
-                        }
-                    }
-                });
-                setTaskStatusData(CHART_LABELS.map(label => ({ name: label, value: taskCounts[label] })));
+                // Use helper functions to process data
+                setProjectStatusData(processProjectStats(projects));
+                setTaskStatusData(processTaskStats(tasks));
                 
-                // Process team workload data
-                const workloadCounts = (tasks || []).reduce((acc: Record<string, number>, task: any) => {
-                    const userRelation = task?.users;
-                    const isUserObject = userRelation && typeof userRelation === 'object' && !Array.isArray(userRelation);
-                    const userName = isUserObject ? (userRelation as { full_name: string }).full_name : null;
-
-                    if (typeof userName === 'string' && userName.trim()) {
-                        const trimmedName = userName.trim();
-                        acc[trimmedName] = (acc[trimmedName] || 0) + 1;
-                    }
-                    return acc;
-                }, {} as Record<string, number>);
-                
-                const processedWorkloadData = Object.entries(workloadCounts)
-                    .map(([name, count]): BarChartData => ({ name, tasks: count as number }))
-                    .sort((a, b) => b.tasks - a.tasks);
-                setTeamWorkloadData(processedWorkloadData);
+                const sanitizedTasks = (tasks || []).map(task => ({
+                    ...task,
+                    users: (task.users && typeof task.users === 'object') ? task.users : null
+                }));
+                setTeamWorkloadData(processWorkloadStats(sanitizedTasks));
 
             } catch (err: unknown) {
                 if (err instanceof Error && err.name !== 'AbortError') {

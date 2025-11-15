@@ -8,6 +8,7 @@ import { TrashIcon } from '../components/icons/TrashIcon';
 import Modal from '../components/Modal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import Notification from '../components/Notification';
+import type { TaskStatus } from '../types';
 
 interface User {
   id: string;
@@ -29,7 +30,7 @@ interface Task {
   start_date: string;
   due_date: string;
   end_date: string;
-  status: string;
+  status: TaskStatus;
   projects: Project | null;
   users: User | null;
 }
@@ -74,6 +75,7 @@ const Tarefas: React.FC = () => {
     const [currentTask, setCurrentTask] = useState<Partial<Task>>(emptyTask);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+    const [saving, setSaving] = useState(false);
 
 
     useEffect(() => {
@@ -144,7 +146,7 @@ const Tarefas: React.FC = () => {
             setNotification({ type: 'error', message: `Erro ao atualizar status: ${error.message}` });
         } else {
             setNotification({ type: 'success', message: 'Status atualizado com sucesso!' });
-            setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } : task));
+            setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus as TaskStatus } : task));
         }
     };
 
@@ -194,6 +196,7 @@ const Tarefas: React.FC = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+        setSaving(true);
         const taskData = {
             title: currentTask.title,
             description: currentTask.description,
@@ -217,12 +220,12 @@ const Tarefas: React.FC = () => {
                 if (error) throw error;
                 savedTask = data;
             } else {
-                const { data, error } = await supabase
+                const { data, error: taskError } = await supabase
                     .from('tasks')
                     .insert(taskData)
                     .select('*, projects(id, title), users(id, full_name, avatar_url)')
                     .single();
-                if (error) throw error;
+                if (taskError) throw taskError;
                 savedTask = data;
             }
             
@@ -230,7 +233,12 @@ const Tarefas: React.FC = () => {
             closeModal();
             setNotification({ type: 'success', message: `Tarefa ${isEditing ? 'atualizada' : 'criada'} com sucesso!` });
         } catch (error: any) {
-            setError(error.message);
+            console.error("Falha ao salvar tarefa:", error);
+            const userMessage = `Falha ao salvar a tarefa. Motivo: ${error.message}`;
+            setError(userMessage);
+            setNotification({ type: 'error', message: userMessage });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -406,11 +414,11 @@ const Tarefas: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex justify-end pt-6 border-t mt-6">
-                        <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                        <button type="button" onClick={closeModal} className="mr-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={saving}>
                         Cancelar
                         </button>
-                        <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700">
-                        Salvar
+                        <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400" disabled={saving}>
+                        {saving ? 'Salvando...' : 'Salvar'}
                         </button>
                     </div>
                 </form>

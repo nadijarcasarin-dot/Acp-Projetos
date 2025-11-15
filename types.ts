@@ -1,4 +1,3 @@
-
 // FIX: Import React to make React types available in this file.
 import React from 'react';
 
@@ -17,6 +16,10 @@ export type Page =
   | 'Relatórios'
   | 'Configurações'
   | 'Sair';
+
+export type ProjectStatus = 'Pendente' | 'Em andamento' | 'Concluído' | 'Atrasado';
+export type TaskStatus = 'Pendente' | 'Em Andamento' | 'Concluída' | 'Atrasada';
+
 
 export interface NavItem {
   name: Page;

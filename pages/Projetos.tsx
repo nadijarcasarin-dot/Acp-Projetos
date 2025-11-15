@@ -12,6 +12,7 @@ import { TrashIcon } from '../components/icons/TrashIcon';
 import Modal from '../components/Modal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import Notification from '../components/Notification';
+import type { ProjectStatus } from '../types';
 
 interface Company {
   id: number;
@@ -30,7 +31,7 @@ interface Project {
   start_date: string;
   end_date: string;
   progress: number;
-  status: string;
+  status: ProjectStatus;
   company_id: number;
   manager_id: string;
   companies: Company | null;
@@ -69,6 +70,36 @@ const getProgressClass = (status: string) => {
 const formatDate = (dateString: string) => {
   if (!dateString) return 'N/A';
   return new Date(dateString).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+};
+
+const processProjects = (projectsData: any[], tasksData: any[]): Project[] => {
+    const projectsWithProgress = (projectsData || []).map(project => {
+      const projectTasks = (tasksData || []).filter(task => task.project_id === project.id);
+      const completedTasks = projectTasks.filter(task => task.status === 'Concluída').length;
+      const totalTasks = projectTasks.length;
+      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      
+      let dynamicStatus: ProjectStatus = project.status;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDate = project.end_date ? new Date(project.end_date) : null;
+
+      if (totalTasks > 0 && progress === 100) {
+        dynamicStatus = 'Concluído';
+      } else if (endDate && endDate < today && progress < 100) {
+        dynamicStatus = 'Atrasado';
+      } else if (progress > 0 && progress < 100) {
+        dynamicStatus = 'Em andamento';
+      }
+
+      return { ...project, progress, status: dynamicStatus };
+    });
+
+    return projectsWithProgress.map(project => ({
+        ...project,
+        companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
+        users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
+    })) as Project[];
 };
 
 const Projetos: React.FC = () => {
@@ -113,24 +144,9 @@ const Projetos: React.FC = () => {
         
         const { data: usersData, error: usersError } = usersRes;
         if (usersError) throw usersError;
-
-        const projectsWithProgress = (projectsData || []).map(project => {
-          const projectTasks = (tasksData || []).filter(task => task.project_id === project.id);
-          const completedTasks = projectTasks.filter(task => task.status === 'Concluída').length;
-          const totalTasks = projectTasks.length;
-          const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-          return { ...project, progress };
-        });
-
-        const sanitizedProjects = projectsWithProgress.map(project => {
-          return {
-            ...project,
-            companies: project.companies || { id: project.company_id, name: 'Empresa Indefinida' },
-            users: project.users || { id: project.manager_id, full_name: 'Responsável Indefinido' },
-          };
-        });
         
-        setProjects(sanitizedProjects as Project[]);
+        const processed = processProjects(projectsData, tasksData);
+        setProjects(processed);
         setCompanies(companiesData || []);
         setUsers(usersData || []);
 
@@ -240,12 +256,12 @@ const Projetos: React.FC = () => {
             if (error) throw error;
             savedProject = data;
         } else {
-            const { data, error } = await supabase
+             const { data, error: projectError } = await supabase
                 .from('projects')
                 .insert(projectData)
                 .select('*, companies(id, name), users:manager_id(id, full_name)')
                 .single();
-            if (error) throw error;
+            if (projectError) throw projectError;
             savedProject = { ...data, progress: 0 };
         }
         
@@ -254,7 +270,10 @@ const Projetos: React.FC = () => {
         setNotification({ type: 'success', message: `Projeto ${isEditing ? 'atualizado' : 'criado'} com sucesso!` });
 
     } catch(error: any) {
-        setError(error.message);
+        console.error("Falha ao salvar projeto:", error);
+        const userMessage = `Falha ao salvar o projeto. Motivo: ${error.message}`;
+        setError(userMessage);
+        setNotification({ type: 'error', message: userMessage });
     }
   };
   
@@ -278,7 +297,6 @@ const Projetos: React.FC = () => {
     }
     const searchTermLower = searchTerm.toLowerCase();
     const titleMatch = project.title.toLowerCase().includes(searchTermLower);
-    // Safely check for company name, preventing crashes if the company is missing.
     const companyMatch = project.companies?.name?.toLowerCase().includes(searchTermLower) || false;
     return titleMatch || companyMatch;
   });
